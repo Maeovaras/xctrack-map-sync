@@ -37,6 +37,7 @@ internal sealed class MainForm : Form
     private bool _busy;
     private ComparisonResult? _comparison;
     private IReadOnlyList<DeviceStatus> _lastDevices = Array.Empty<DeviceStatus>();
+    private string _lastLoggedDeviceStateKey = string.Empty;
     private UiLanguage _language;
 
     public MainForm(string? demoMode = null, string? languageOverride = null)
@@ -506,6 +507,31 @@ internal sealed class MainForm : Form
         else
         {
             _deviceB.SetDisconnected(T("Laukiama antro USB / MTP įrenginio", "Waiting for the second USB / MTP device"));
+        }
+
+        var stateKey = string.Join("|", devices.Select(device => $"{device.DisplayName}:{device.Path}"));
+        if (!string.Equals(stateKey, _lastLoggedDeviceStateKey, StringComparison.Ordinal))
+        {
+            if (devices.Count == 1)
+            {
+                AppendLog(T(
+                    $"{devices[0].DisplayName} prijungtas ir paruoštas. Laukiama antro įrenginio.",
+                    $"{devices[0].DisplayName} is connected and ready. Waiting for the second device."), false);
+            }
+            else if (devices.Count == 2)
+            {
+                AppendLog(T(
+                    "Abu įrenginiai prijungti ir paruošti.",
+                    "Both devices are connected and ready."), false);
+            }
+            else if (devices.Count == 0 && !string.IsNullOrEmpty(_lastLoggedDeviceStateKey))
+            {
+                AppendLog(T(
+                    "Paruošti įrenginiai atjungti. Laukiama USB / MTP įrenginių.",
+                    "Ready devices were disconnected. Waiting for USB / MTP devices."), false);
+            }
+
+            _lastLoggedDeviceStateKey = stateKey;
         }
     }
 
