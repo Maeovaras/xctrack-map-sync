@@ -1,0 +1,63 @@
+using System.Text.Json.Serialization;
+
+namespace XCTrackMapSync;
+
+internal enum UiLanguage
+{
+    Lithuanian,
+    English
+}
+
+internal sealed class DeviceStatus
+{
+    public string DisplayName { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string Layout { get; set; } = string.Empty;
+    public string Path { get; set; } = string.Empty;
+}
+
+internal sealed class DeviceComparison
+{
+    public string Name { get; set; } = string.Empty;
+    public string Layout { get; set; } = string.Empty;
+    public int FileCount { get; set; }
+    public int RoadMapCount { get; set; }
+    public int GecCount { get; set; }
+    public int MissingIncoming { get; set; }
+    public int NewerIncoming { get; set; }
+    public long BytesIncoming { get; set; }
+}
+
+internal sealed class ComparisonResult
+{
+    public DeviceComparison DeviceA { get; set; } = new();
+    public DeviceComparison DeviceB { get; set; } = new();
+    public int Transfers { get; set; }
+    public int Same { get; set; }
+    public int Conflicts { get; set; }
+    public long TotalBytes { get; set; }
+}
+
+internal sealed class ProgressInfo
+{
+    public int Current { get; set; }
+    public int Total { get; set; }
+    public string Path { get; set; } = string.Empty;
+    public string Action { get; set; } = string.Empty;
+    public string Destination { get; set; } = string.Empty;
+}
+
+internal sealed class DoneInfo
+{
+    public int Transfers { get; set; }
+    public int Failures { get; set; }
+    public string Audit { get; set; } = string.Empty;
+}
+
+internal sealed record PowerShellLine(string Text, bool IsError);
+
+internal sealed record PowerShellResult(int ExitCode, IReadOnlyList<PowerShellLine> Lines)
+{
+    public string? FindPayload(string prefix) =>
+        Lines.LastOrDefault(line => line.Text.StartsWith(prefix, StringComparison.Ordinal))?.Text[prefix.Length..];
+}

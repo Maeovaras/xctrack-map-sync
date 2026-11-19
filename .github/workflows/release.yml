@@ -1,0 +1,57 @@
+name: Build and publish release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build Windows executable
+        shell: pwsh
+        run: >-
+          dotnet publish .\gui\XCTrackMapSync.csproj
+          -c Release
+          -r win-x64
+          --self-contained false
+          -p:PublishSingleFile=true
+          -p:DebugType=None
+          -p:DebugSymbols=false
+          -o .\publish
+
+      - name: Create checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash .\publish\XCTrackMapSync.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  XCTrackMapSync.exe" | Set-Content .\publish\XCTrackMapSync.exe.sha256 -Encoding ascii
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release delete $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --yes
+          }
+
+          gh release create $env:GITHUB_REF_NAME `
+            .\publish\XCTrackMapSync.exe `
+            .\publish\XCTrackMapSync.exe.sha256 `
+            --repo $env:GITHUB_REPOSITORY `
+            --title "XCTrack Map Sync $env:GITHUB_REF_NAME" `
+            --generate-notes

@@ -1,0 +1,35 @@
+# .NET build output
+**/bin/
+**/obj/
+publish/
+preview.png
+
+# IDE and user-specific files
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Local logs, audits, backups, and temporary files
+*.log
+*.tmp
+XCTrackMapSync/
+audit.csv
+audit.md
+backup/
+staging/
+
+# Signing material must never be committed
+*.pfx
+*.p12
+*.snk
+*.cer
+*.key
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
