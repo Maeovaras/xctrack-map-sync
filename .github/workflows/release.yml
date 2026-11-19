@@ -23,15 +23,17 @@ jobs:
 
       - name: Build Windows executable
         shell: pwsh
-        run: >-
-          dotnet publish .\gui\XCTrackMapSync.csproj
-          -c Release
-          -r win-x64
-          --self-contained false
-          -p:PublishSingleFile=true
-          -p:DebugType=None
-          -p:DebugSymbols=false
-          -o .\publish
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart("v")
+          dotnet publish .\gui\XCTrackMapSync.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained false `
+            -p:PublishSingleFile=true `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
+            -p:Version=$version `
+            -o .\publish
 
       - name: Create checksum
         shell: pwsh

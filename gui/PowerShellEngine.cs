@@ -15,7 +15,8 @@ internal sealed class PowerShellEngine
     public async Task<PowerShellResult> RunAsync(
         IEnumerable<string> scriptArguments,
         Action<PowerShellLine>? onLine,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? timeout = null)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -82,7 +83,40 @@ internal sealed class PowerShellEngine
             }
         });
 
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        var exitTask = process.WaitForExitAsync(cancellationToken);
+        if (timeout is not null)
+        {
+            var timeoutTask = Task.Delay(timeout.Value, cancellationToken);
+            var completedTask = await Task.WhenAny(exitTask, timeoutTask).ConfigureAwait(false);
+            if (completedTask != exitTask)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                }
+                catch
+                {
+                    // The process may finish while the timeout is handled.
+                }
+
+                try
+                {
+                    process.WaitForExit(2_000);
+                }
+                catch
+                {
+                    // The timeout result is more useful than a cleanup error.
+                }
+
+                throw new TimeoutException($"PowerShell operation timed out after {timeout.Value.TotalSeconds:N0} seconds.");
+            }
+        }
+
+        await exitTask.ConfigureAwait(false);
         process.WaitForExit(); // Flush asynchronous output events.
 
         lock (gate)

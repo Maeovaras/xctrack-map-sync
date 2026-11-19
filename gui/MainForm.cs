@@ -297,10 +297,7 @@ internal sealed class MainForm : Form
         SetBusy(true, T("Tikrinami prijungti įrenginiai...", "Checking connected devices..."));
         try
         {
-            var result = await _engine.RunAsync(
-                new[] { "-GuiStatusJson" },
-                line => HandleEngineLine(line, includeProtocolLines: false),
-                _closing.Token);
+            var result = await ReadDeviceStatusWithRetryAsync();
 
             var payload = result.FindPayload(JsonPrefix);
             if (result.ExitCode != 0 || string.IsNullOrWhiteSpace(payload))
@@ -330,6 +327,14 @@ internal sealed class MainForm : Form
         {
             // The application is closing.
         }
+        catch (TimeoutException)
+        {
+            var message = T(
+                "MTP patikra neatsakė. Programa netrukus bandys dar kartą.",
+                "The MTP check did not respond. The application will retry shortly.");
+            ResetComparison(message);
+            AppendLog(message, true);
+        }
         catch (Exception ex)
         {
             ResetComparison(T("Įrenginių patikra nepavyko.", "Device check failed."));
@@ -345,6 +350,32 @@ internal sealed class MainForm : Form
         }
     }
 
+    private async Task<PowerShellResult> ReadDeviceStatusWithRetryAsync()
+    {
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            try
+            {
+                return await _engine.RunAsync(
+                    new[] { "-GuiStatusJson" },
+                    line => HandleEngineLine(line, includeProtocolLines: false),
+                    _closing.Token,
+                    TimeSpan.FromSeconds(12));
+            }
+            catch (TimeoutException) when (attempt == 1)
+            {
+                var message = T(
+                    "MTP patikra užtruko. Bandoma dar kartą...",
+                    "The MTP check timed out. Retrying...");
+                _statusLabel.Text = message;
+                AppendLog(message, true);
+                await Task.Delay(500, _closing.Token);
+            }
+        }
+
+        throw new TimeoutException("The MTP check timed out twice.");
+    }
+
     private async Task CompareAsync()
     {
         _statusLabel.Text = T(
@@ -355,7 +386,8 @@ internal sealed class MainForm : Form
         var result = await _engine.RunAsync(
             new[] { "-GuiCompareJson" },
             line => HandleEngineLine(line, includeProtocolLines: false),
-            _closing.Token);
+            _closing.Token,
+            TimeSpan.FromMinutes(15));
 
         var payload = result.FindPayload(JsonPrefix);
         if (result.ExitCode != 0 || string.IsNullOrWhiteSpace(payload))
