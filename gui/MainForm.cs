@@ -42,6 +42,9 @@ internal sealed class MainForm : Form
     private bool _busy;
     private ComparisonResult? _comparison;
     private IReadOnlyList<DeviceStatus> _lastDevices = Array.Empty<DeviceStatus>();
+    private IReadOnlyList<DeviceStatus> _usbDevices = Array.Empty<DeviceStatus>();
+    private IReadOnlyList<DeviceStatus> _readyDevices = Array.Empty<DeviceStatus>();
+    private string _comparedDevicesKey = string.Empty;
     private string _lastLoggedDeviceStateKey = string.Empty;
     private UiLanguage _language;
 
@@ -77,7 +80,7 @@ internal sealed class MainForm : Form
                 return;
             }
             _timer.Start();
-            await RefreshAndCompareAsync(showErrors: true);
+            await RefreshAndCompareAsync(showErrors: true, forceCompare: true);
         };
         FormClosing += (_, _) => _closing.Cancel();
     }
@@ -150,7 +153,7 @@ internal sealed class MainForm : Form
         _refreshButton.Anchor = AnchorStyles.Right;
         _refreshButton.Margin = Padding.Empty;
         StyleSecondaryButton(_refreshButton);
-        _refreshButton.Click += async (_, _) => await RefreshAndCompareAsync(showErrors: true);
+        _refreshButton.Click += async (_, _) => await RefreshAndCompareAsync(showErrors: true, forceCompare: true);
         header.Controls.Add(_titleLabel, 0, 0);
         header.Controls.Add(_subtitleLabel, 0, 1);
         header.Controls.Add(_languageCombo, 1, 0);
@@ -312,7 +315,7 @@ internal sealed class MainForm : Form
         return panel;
     }
 
-    private async Task RefreshAndCompareAsync(bool showErrors)
+    private async Task RefreshAndCompareAsync(bool showErrors, bool forceCompare = false)
     {
         if (_busy)
         {
@@ -333,13 +336,29 @@ internal sealed class MainForm : Form
                 if (usbResult.ExitCode == 0 && !string.IsNullOrWhiteSpace(usbPayload))
                 {
                     var usbDevices = JsonSerializer.Deserialize<List<DeviceStatus>>(usbPayload, _jsonOptions) ?? new();
-                    UpdateDeviceState(usbDevices);
-                    _statusLabel.Text = GetWaitingStatus(usbDevices);
+
+                    // A ready device stays ready while it is still on USB. Only
+                    // drop it here if the USB check saw it before and now does not
+                    // (the cable was pulled); the folder scan below decides the rest.
+                    var previousUsb = _usbDevices.Select(device => device.Identity).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    var currentUsb = usbDevices.Select(device => device.Identity).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    var stillReady = _readyDevices.Where(device =>
+                        !previousUsb.Contains(device.Identity) || currentUsb.Contains(device.Identity));
+
+                    _usbDevices = usbDevices;
+                    var merged = MergeDevices(stillReady, usbDevices);
+                    UpdateDeviceState(merged);
+                    _statusLabel.Text = GetWaitingStatus(merged);
+                }
+                else
+                {
+                    _usbDevices = Array.Empty<DeviceStatus>();
                 }
             }
             catch (Exception) when (!_closing.IsCancellationRequested)
             {
                 // The full XCTrack directory scan below remains authoritative.
+                _usbDevices = Array.Empty<DeviceStatus>();
             }
 
             var result = await ReadDeviceStatusWithRetryAsync();
@@ -350,12 +369,26 @@ internal sealed class MainForm : Form
                 throw new InvalidOperationException(BuildError(result, T("Nepavyko nuskaityti įrenginių.", "Could not read connected devices.")));
             }
 
-            var devices = JsonSerializer.Deserialize<List<DeviceStatus>>(payload, _jsonOptions) ?? new();
+            _readyDevices = JsonSerializer.Deserialize<List<DeviceStatus>>(payload, _jsonOptions) ?? new();
+
+            // A device that is on USB but whose XCTrack folder scan did not see it
+            // (locked, slow MTP) stays "USB / MTP connected" instead of disappearing.
+            var devices = MergeDevices(_readyDevices, _usbDevices);
             UpdateDeviceState(devices);
 
             if (devices.Count == 2 && devices.All(device => device.Ready))
             {
-                await CompareAsync();
+                // Reading the full inventory over MTP is slow. Repeat it only when
+                // the connected pair changed or the user/sync/restore asked for it.
+                if (forceCompare || !IsComparisonCurrent(devices))
+                {
+                    await CompareAsync();
+                    _comparedDevicesKey = GetDevicesKey(devices);
+                }
+                else
+                {
+                    UpdateComparison(_comparison!);
+                }
             }
             else if (devices.Count > 2)
             {
@@ -394,6 +427,36 @@ internal sealed class MainForm : Form
             SetBusy(false, _statusLabel.Text);
         }
     }
+
+    private static List<DeviceStatus> MergeDevices(
+        IEnumerable<DeviceStatus> readyDevices,
+        IEnumerable<DeviceStatus> usbDevices)
+    {
+        var merged = new Dictionary<string, DeviceStatus>(StringComparer.OrdinalIgnoreCase);
+        foreach (var device in usbDevices)
+        {
+            merged[device.Identity] = device;
+        }
+        foreach (var device in readyDevices)
+        {
+            merged[device.Identity] = device; // The validated XCTrack entry wins.
+        }
+
+        // Same order as the engine: device A/B must not swap between checks.
+        return merged.Values
+            .OrderBy(device => device.Identity, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(device => device.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string GetDevicesKey(IEnumerable<DeviceStatus> devices) =>
+        string.Join("|", devices.Select(device => $"{device.Identity}:{device.Path}:{device.Ready}"));
+
+    private bool IsComparisonCurrent(IReadOnlyList<DeviceStatus> devices) =>
+        _comparison is not null &&
+        devices.Count == 2 &&
+        devices.All(device => device.Ready) &&
+        string.Equals(_comparedDevicesKey, GetDevicesKey(devices), StringComparison.Ordinal);
 
     private async Task<PowerShellResult> ReadDeviceStatusWithRetryAsync()
     {
@@ -512,7 +575,7 @@ internal sealed class MainForm : Form
             _timer.Start();
         }
 
-        await RefreshAndCompareAsync(showErrors: false);
+        await RefreshAndCompareAsync(showErrors: false, forceCompare: true);
     }
 
     private async Task RestoreDeviceAsync(int deviceIndex)
@@ -679,14 +742,20 @@ internal sealed class MainForm : Form
 
         if (restoreCompleted)
         {
-            await RefreshAndCompareAsync(showErrors: false);
+            await RefreshAndCompareAsync(showErrors: false, forceCompare: true);
         }
     }
 
     private void UpdateDeviceState(IReadOnlyList<DeviceStatus> devices)
     {
         _lastDevices = devices;
-        if (devices.Count > 0)
+        if (IsComparisonCurrent(devices))
+        {
+            // Keep the file statistics on the cards instead of flashing them
+            // back to the plain "connected" view on every background check.
+            UpdateComparison(_comparison!);
+        }
+        else if (devices.Count > 0)
         {
             if (devices[0].Ready)
             {
@@ -705,7 +774,11 @@ internal sealed class MainForm : Form
             _deviceA.SetDisconnected();
         }
 
-        if (devices.Count > 1)
+        if (IsComparisonCurrent(devices))
+        {
+            // Card B was updated together with card A above.
+        }
+        else if (devices.Count > 1)
         {
             if (devices[1].Ready)
             {
@@ -956,6 +1029,7 @@ internal sealed class MainForm : Form
     private void ResetComparison(string message)
     {
         _comparison = null;
+        _comparedDevicesKey = string.Empty;
         _summaryTitle.Text = T("Laukiama abiejų įrenginių", "Waiting for both devices");
         _toALabel.Text = string.Empty;
         _toBLabel.Text = string.Empty;

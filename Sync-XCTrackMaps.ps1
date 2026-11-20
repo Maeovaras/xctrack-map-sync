@@ -217,6 +217,64 @@ function Write-Status {
     Write-Host ('[{0:HH:mm:ss}] {1}' -f (Get-Date), $Message)
 }
 
+function Get-UsbDeviceKey {
+    param([string] $Value)
+
+    # PnP instance IDs (USB\VID_0E8D&PID_2008\22096D56) and Shell device paths
+    # (...\\?\usb#vid_0e8d&pid_2008#22096d56#{guid}) describe the same device
+    # differently. Normalize both to one key so the GUI can merge its USB and
+    # XCTrack-folder checks into one device entry.
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return ''
+    }
+
+    $match = [regex]::Match(
+        $Value,
+        '(?i)vid_([0-9a-f]{4})&pid_([0-9a-f]{4})(&mi_[0-9a-f]{2})?[\\#]([^\\#{}]+)')
+    if ($match.Success) {
+        return ('usb:{0}:{1}{2}:{3}' -f
+            $match.Groups[1].Value,
+            $match.Groups[2].Value,
+            $match.Groups[3].Value,
+            $match.Groups[4].Value).ToLowerInvariant()
+    }
+    return $Value.ToLowerInvariant()
+}
+
+function Get-DevicesSortedByIdentity {
+    param([Parameter(Mandatory = $true)] [AllowEmptyCollection()] [object[]] $Devices)
+
+    # Ordinal order, identical to the GUI (StringComparer.OrdinalIgnoreCase):
+    # device A/B and Restore A/B must point to the same physical device.
+    $list = New-Object System.Collections.Generic.List[object]
+    foreach ($device in $Devices) {
+        $list.Add($device)
+    }
+    $list.Sort([Comparison[object]] {
+        param($x, $y)
+        $result = [string]::Compare([string] $x.Key, [string] $y.Key, [StringComparison]::OrdinalIgnoreCase)
+        if ($result -eq 0) {
+            $result = [string]::Compare([string] $x.Name, [string] $y.Name, [StringComparison]::OrdinalIgnoreCase)
+        }
+        return $result
+    })
+    return , $list.ToArray()
+}
+
+function Set-DeviceDisplayNames {
+    param([Parameter(Mandatory = $true)] [AllowEmptyCollection()] [object[]] $Devices)
+
+    foreach ($group in @($Devices | Group-Object -Property Name)) {
+        if ($group.Count -gt 1) {
+            $index = 1
+            foreach ($device in $group.Group) {
+                $device.DisplayName = '{0} #{1}' -f $device.Name, $index
+                $index++
+            }
+        }
+    }
+}
+
 function Get-Air3UsbDevices {
     $devices = New-Object System.Collections.Generic.List[object]
     $pnpDevices = @(Get-PnpDevice -PresentOnly -Class WPD -ErrorAction SilentlyContinue |
@@ -230,23 +288,17 @@ function Get-Air3UsbDevices {
         $devices.Add([pscustomobject]@{
             DisplayName = $name
             Name        = $name
+            Key         = Get-UsbDeviceKey ([string] $pnpDevice.InstanceId)
             Layout      = 'USB-MTP'
             Path        = [string] $pnpDevice.InstanceId
             Ready       = $false
         })
     }
 
-    foreach ($group in @($devices | Group-Object -Property Name)) {
-        if ($group.Count -gt 1) {
-            $index = 1
-            foreach ($device in $group.Group) {
-                $device.DisplayName = '{0} #{1}' -f $device.Name, $index
-                $index++
-            }
-        }
-    }
-
-    return $devices.ToArray()
+    # Stable order: the GUI maps the first device to card A and the second to B.
+    $sorted = Get-DevicesSortedByIdentity -Devices $devices.ToArray()
+    Set-DeviceDisplayNames -Devices $sorted
+    return $sorted
 }
 
 function ConvertTo-SafeName {
@@ -334,6 +386,7 @@ function Resolve-XCTrackDevice {
                 return [pscustomobject]@{
                     Name        = [string] $DeviceItem.Name
                     DisplayName = [string] $DeviceItem.Name
+                    Key         = Get-UsbDeviceKey $path
                     Path        = $path
                     Layout      = $layout.Name
                     DeviceItem  = $DeviceItem
@@ -361,17 +414,11 @@ function Get-XCTrackDevices {
         }
     }
 
-    foreach ($group in @($devices | Group-Object -Property Name)) {
-        if ($group.Count -gt 1) {
-            $index = 1
-            foreach ($device in $group.Group) {
-                $device.DisplayName = '{0} #{1}' -f $device.Name, $index
-                $index++
-            }
-        }
-    }
-
-    return $devices.ToArray()
+    # Shell enumeration order is not guaranteed. Sort by USB identity so
+    # device A/B and the #1/#2 suffixes stay the same between scans.
+    $sorted = Get-DevicesSortedByIdentity -Devices $devices.ToArray()
+    Set-DeviceDisplayNames -Devices $sorted
+    return $sorted
 }
 
 function Select-XCTrackDevice {
@@ -380,20 +427,20 @@ function Select-XCTrackDevice {
         [Parameter(Mandatory = $true)] [string] $Selector
     )
 
-    $matches = @($Devices | Where-Object {
+    $found = @($Devices | Where-Object {
         $_.DisplayName -ieq $Selector -or
         $_.Name -ieq $Selector -or
         (-not [string]::IsNullOrWhiteSpace($_.Path) -and $_.Path -ieq $Selector)
     })
 
-    if ($matches.Count -eq 0) {
+    if ($found.Count -eq 0) {
         throw "XCTrack device '$Selector' was not found. Use -ListDevices."
     }
-    if ($matches.Count -gt 1) {
-        $choices = ($matches | ForEach-Object { $_.DisplayName }) -join ', '
+    if ($found.Count -gt 1) {
+        $choices = ($found | ForEach-Object { $_.DisplayName }) -join ', '
         throw "Device selector '$Selector' is ambiguous. Use one of: $choices"
     }
-    return $matches[0]
+    return $found[0]
 }
 
 function ConvertTo-DateTime {
@@ -1304,6 +1351,7 @@ try {
             [pscustomobject]@{
                 DisplayName = $_.DisplayName
                 Name        = $_.Name
+                Key         = $_.Key
                 Layout      = $_.Layout
                 Path        = $_.Path
                 Ready       = $true

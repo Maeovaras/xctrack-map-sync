@@ -24,6 +24,13 @@ device immediately. A separate Windows Shell scan then validates the XCTrack
 remains green and validation is retried without requiring the cable to be
 disconnected.
 
+Both stages identify a device by its USB vendor ID, product ID, and serial
+number, so they update the same device card. Devices are ordered by that
+identity: device A, device B, and the `#1` / `#2` suffixes of identical models
+stay the same between checks. The background check runs every 10 seconds, but
+the full map comparison is repeated only when the connected pair changes, after
+**Refresh**, or after a synchronization or restore.
+
 ## Synchronization rules
 
 The default scope is:

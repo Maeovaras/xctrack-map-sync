@@ -12,9 +12,16 @@ internal sealed class DeviceStatus
 {
     public string DisplayName { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
+    public string Key { get; set; } = string.Empty;
     public string Layout { get; set; } = string.Empty;
     public string Path { get; set; } = string.Empty;
     public bool Ready { get; set; }
+
+    /// <summary>
+    /// USB identity shared by the fast USB check and the XCTrack folder scan.
+    /// Older engine output has no key, so fall back to the device path.
+    /// </summary>
+    public string Identity => string.IsNullOrWhiteSpace(Key) ? Path : Key;
 }
 
 internal sealed class DeviceComparison

@@ -46,10 +46,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Never replace a published binary: its SHA-256 may already be in use.
+          # Publish a fix as a new tag instead (for example v1.0.1).
           gh release view $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release delete $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --yes
+            Write-Error "Release $env:GITHUB_REF_NAME already exists. Create a new version tag instead of rebuilding it."
+            exit 1
           }
+          $global:LASTEXITCODE = 0
 
           gh release create $env:GITHUB_REF_NAME `
             .\publish\XCTrackMapSync.exe `

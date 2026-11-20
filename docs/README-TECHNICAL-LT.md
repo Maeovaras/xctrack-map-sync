@@ -23,6 +23,13 @@ parodo prijungtą AIR³. Atskira Windows Shell patikra tada patvirtina XCTrack
 paruoštas**. Jei Shell patikra laikinai užtrunka, USB būsena lieka žalia, o
 patikra kartojama nereikalaujant atjungti laido.
 
+Abu etapai įrenginį atpažįsta pagal USB gamintojo ID, produkto ID ir serijos
+numerį, todėl atnaujina tą pačią įrenginio kortelę. Įrenginiai rikiuojami pagal
+šį identifikatorių: įrenginys A, įrenginys B ir vienodų modelių `#1` / `#2`
+priesagos tarp patikrų nesikeičia. Foninė patikra vyksta kas 10 sekundžių, bet
+pilnas žemėlapių palyginimas kartojamas tik pasikeitus prijungtų įrenginių
+porai, paspaudus **Atnaujinti** arba po sinchronizavimo ar atkūrimo.
+
 ## Sinchronizavimo taisyklės
 
 Pagal nutylėjimą sinchronizuojama:
