@@ -16,6 +16,8 @@
    Explorer dukart spustelėkite `XCTrackMapSync.exe`.
 5. Palaukite palyginimo, patikrinkite pakeitimus ir spauskite
    **Sinchronizuoti**. Iki pabaigos neatjunkite ir neužrakinkite įrenginių.
+6. Jei norite atšaukti paskutinį vieno įrenginio sinchronizavimą, prijunkite tą
+   įrenginį ir spauskite **Atkurti A** arba **Atkurti B**.
 
 Viskas – terminalo naudoti nereikia. Viršutiniame dešiniajame kampe pasirinkite
 **Lietuvių** arba **English**; programa pasirinktą kalbą įsimena.
@@ -31,8 +33,21 @@ Programa:
 - parodo, kuriame įrenginyje trūksta failų arba yra senesnių versijų;
 - dvikrypčiai nukopijuoja trūkstamus failus;
 - skirtingo dydžio senesnį failą pakeičia tik tada, kai naujesnė pusė aiški;
-- nieko netrina;
-- prieš pakeitimą sukuria vietinę atsarginę kopiją ir įrašo auditą.
+- sinchronizavimo metu failų netrina;
+- po sinchronizavimo sukuria vietinį atkūrimo tašką ir įrašo auditą;
+- gali atkurti kiekvieno įrenginio būseną prieš paskutinį sinchronizavimą.
+
+## Įrenginio atkūrimas
+
+Mygtukai **Atkurti A** ir **Atkurti B** veikia atskirai. Programa parenka
+naujausią pasirinktam įrenginiui tinkamą atkūrimo tašką. Pakeisti failai
+grąžinami iš vietinės atsarginės kopijos, o tik to sinchronizavimo metu pridėti
+failai pašalinami. Prieš pašalinimą programa dar išsaugo vietinę apsauginę jų
+kopiją.
+
+Uždarykite XCTrack ir iki atkūrimo pabaigos neatjunkite bei neužrakinkite
+pasirinkto įrenginio. Atkūrimo duomenys ir CSV auditai saugomi
+`Documents\XCTrackMapSync` kataloge.
 
 ## Ekrano nuotraukos
 
@@ -46,8 +61,10 @@ Programa:
 - **[Technical documentation in English](docs/README-TECHNICAL.md)**
 - [Licencija](LICENSE) ir [trečiųjų šalių informacija](THIRD_PARTY_NOTICES.md)
 
-Programa žemėlapių failų niekada netrina, tačiau svarbius failus vis tiek
-rekomenduojama saugoti ir atskiroje atsarginėje kopijoje.
+Sinchronizavimo metu programa žemėlapių failų netrina. Atkūrimo metu ji
+pašalina tik pasirinkto sinchronizavimo pridėtus failus, prieš tai išsaugojusi
+vietinę apsauginę kopiją. Svarbius failus vis tiek rekomenduojama saugoti ir
+atskiroje atsarginėje kopijoje.
 
 ## Prekių ženklai ir nepriklausomumas
 

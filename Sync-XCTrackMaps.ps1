@@ -59,7 +59,19 @@ param(
     [switch] $GuiCompareJson,
 
     [Parameter()]
-    [switch] $GuiProgress
+    [switch] $GuiProgress,
+
+    [Parameter()]
+    [switch] $GuiListRestoresJson,
+
+    [Parameter()]
+    [switch] $GuiRestore,
+
+    [Parameter()]
+    [string] $RestoreDevicePath,
+
+    [Parameter()]
+    [string] $RestoreManifest
 )
 
 Set-StrictMode -Version 2.0
@@ -69,6 +81,133 @@ $script:Shell = New-Object -ComObject Shell.Application
 $script:CopyFlags = 532 # silent, no confirmation, no mkdir confirmation
 $script:Audit = New-Object System.Collections.Generic.List[object]
 $script:FailureCount = 0
+$script:RestoreOperations = New-Object System.Collections.Generic.List[object]
+$script:RestoreManifestPath = ''
+$script:RestoreRunRoot = ''
+$script:RestoreManifestHeader = $null
+
+if ($GuiRestore -and -not ('XCTrackMapSync.MtpShellOperations' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+namespace XCTrackMapSync
+{
+    [ComImport]
+    [Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IShellItem
+    {
+    }
+
+    [ComImport]
+    [Guid("3AD05575-8857-4850-9277-11B85BDB8E09")]
+    internal class FileOperation
+    {
+    }
+
+    [ComImport]
+    [Guid("947AAB5F-0A5C-4C13-B4D6-4BF7836FC9F8")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IFileOperation
+    {
+        [PreserveSig] int Advise(IntPtr sink, out uint cookie);
+        [PreserveSig] int Unadvise(uint cookie);
+        [PreserveSig] int SetOperationFlags(uint flags);
+        [PreserveSig] int SetProgressMessage([MarshalAs(UnmanagedType.LPWStr)] string message);
+        [PreserveSig] int SetProgressDialog(IntPtr dialog);
+        [PreserveSig] int SetProperties(IntPtr properties);
+        [PreserveSig] int SetOwnerWindow(uint ownerWindow);
+        [PreserveSig] int ApplyPropertiesToItem(IShellItem item);
+        [PreserveSig] int ApplyPropertiesToItems(IntPtr items);
+        [PreserveSig] int RenameItem(IShellItem item, [MarshalAs(UnmanagedType.LPWStr)] string newName, IntPtr sink);
+        [PreserveSig] int RenameItems(IntPtr items, [MarshalAs(UnmanagedType.LPWStr)] string newName);
+        [PreserveSig] int MoveItem(IShellItem item, IShellItem destinationFolder, [MarshalAs(UnmanagedType.LPWStr)] string newName, IntPtr sink);
+        [PreserveSig] int MoveItems(IntPtr items, IShellItem destinationFolder);
+        [PreserveSig] int CopyItem(IShellItem item, IShellItem destinationFolder, [MarshalAs(UnmanagedType.LPWStr)] string copyName, IntPtr sink);
+        [PreserveSig] int CopyItems(IntPtr items, IShellItem destinationFolder);
+        [PreserveSig] int DeleteItem(IShellItem item, IntPtr sink);
+        [PreserveSig] int DeleteItems(IntPtr items);
+        [PreserveSig] int NewItem(IShellItem destinationFolder, uint attributes, [MarshalAs(UnmanagedType.LPWStr)] string name, [MarshalAs(UnmanagedType.LPWStr)] string templateName, IntPtr sink);
+        [PreserveSig] int PerformOperations();
+        [PreserveSig] int GetAnyOperationsAborted([MarshalAs(UnmanagedType.Bool)] out bool aborted);
+    }
+
+    public static class MtpShellOperations
+    {
+        [DllImport("shell32.dll", PreserveSig = true)]
+        private static extern int SHGetIDListFromObject(
+            [MarshalAs(UnmanagedType.IUnknown)] object shellObject,
+            out IntPtr itemIdList);
+
+        [DllImport("shell32.dll", PreserveSig = true)]
+        private static extern int SHCreateItemFromIDList(
+            IntPtr itemIdList,
+            ref Guid interfaceId,
+            [MarshalAs(UnmanagedType.Interface)] out IShellItem item);
+
+        [DllImport("ole32.dll")]
+        private static extern void CoTaskMemFree(IntPtr memory);
+
+        private static IShellItem CreateShellItem(object shellObject)
+        {
+            IntPtr itemIdList = IntPtr.Zero;
+            try
+            {
+                Marshal.ThrowExceptionForHR(SHGetIDListFromObject(shellObject, out itemIdList));
+                Guid shellItemId = new Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE");
+                IShellItem item;
+                Marshal.ThrowExceptionForHR(SHCreateItemFromIDList(itemIdList, ref shellItemId, out item));
+                return item;
+            }
+            finally
+            {
+                if (itemIdList != IntPtr.Zero)
+                {
+                    CoTaskMemFree(itemIdList);
+                }
+            }
+        }
+
+        public static void Delete(object shellObject)
+        {
+            IShellItem item = null;
+            IFileOperation operation = null;
+            try
+            {
+                item = CreateShellItem(shellObject);
+                operation = (IFileOperation)new FileOperation();
+
+                const uint FOF_SILENT = 0x0004;
+                const uint FOF_NOCONFIRMATION = 0x0010;
+                const uint FOF_NOERRORUI = 0x0400;
+                const uint FOF_NOCOPYSECURITYATTRIBS = 0x0800;
+                const uint FOFX_EARLYFAILURE = 0x00100000;
+                const uint FOFX_NOCOPYHOOKS = 0x00800000;
+                uint flags = FOF_SILENT | FOF_NOCONFIRMATION | FOF_NOERRORUI |
+                    FOF_NOCOPYSECURITYATTRIBS | FOFX_EARLYFAILURE | FOFX_NOCOPYHOOKS;
+
+                Marshal.ThrowExceptionForHR(operation.SetOperationFlags(flags));
+                Marshal.ThrowExceptionForHR(operation.DeleteItem(item, IntPtr.Zero));
+                Marshal.ThrowExceptionForHR(operation.PerformOperations());
+
+                bool aborted;
+                Marshal.ThrowExceptionForHR(operation.GetAnyOperationsAborted(out aborted));
+                if (aborted)
+                {
+                    throw new InvalidOperationException("The MTP delete operation was aborted.");
+                }
+            }
+            finally
+            {
+                if (operation != null) Marshal.FinalReleaseComObject(operation);
+                if (item != null) Marshal.FinalReleaseComObject(item);
+            }
+        }
+    }
+}
+'@
+}
 
 function Write-Status {
     param([string] $Message)
@@ -278,6 +417,21 @@ function Add-MtpInventoryRecursive {
             Add-MtpInventoryRecursive -FolderItem $item -RelativeFolder $relativePath -Inventory $Inventory
         }
         else {
+            $topLevelFolder = @($RelativeFolder -split '\\')[0]
+            $expectedExtension = if ($topLevelFolder -ieq 'RoadMap') {
+                '.map'
+            }
+            elseif ($topLevelFolder -ieq 'gec') {
+                '.gec'
+            }
+            else {
+                ''
+            }
+            if (-not [string]::IsNullOrWhiteSpace($expectedExtension) -and
+                [IO.Path]::GetExtension([string] $item.Name) -ine $expectedExtension) {
+                continue
+            }
+
             $Inventory[$relativePath] = [pscustomobject]@{
                 RelativePath   = $relativePath
                 ParentPath     = $RelativeFolder
@@ -560,6 +714,90 @@ function Add-AuditRecord {
     })
 }
 
+function Save-RestoreManifest {
+    if ([string]::IsNullOrWhiteSpace($script:RestoreManifestPath) -or
+        $null -eq $script:RestoreManifestHeader) {
+        return
+    }
+
+    $payload = [pscustomobject]@{
+        SchemaVersion = 2
+        RunId         = $script:RestoreManifestHeader.RunId
+        CreatedUtc    = $script:RestoreManifestHeader.CreatedUtc
+        Devices       = $script:RestoreManifestHeader.Devices
+        Operations    = @($script:RestoreOperations.ToArray())
+    }
+    $temporaryPath = $script:RestoreManifestPath + '.tmp'
+    $payload |
+        ConvertTo-Json -Depth 8 |
+        Set-Content -LiteralPath $temporaryPath -Encoding UTF8 -WhatIf:$false
+    Move-Item -LiteralPath $temporaryPath -Destination $script:RestoreManifestPath -Force -WhatIf:$false
+}
+
+function Initialize-RestoreManifest {
+    param(
+        [Parameter(Mandatory = $true)] [string] $RunRoot,
+        [Parameter(Mandatory = $true)] $FirstDevice,
+        [Parameter(Mandatory = $true)] $SecondDevice
+    )
+
+    $script:RestoreRunRoot = $RunRoot
+    $script:RestoreManifestPath = Join-Path $RunRoot 'restore-manifest.json'
+    $script:RestoreManifestHeader = [pscustomobject]@{
+        RunId      = Split-Path -Leaf $RunRoot
+        CreatedUtc = (Get-Date).ToUniversalTime().ToString('o')
+        Devices    = @(
+            [pscustomobject]@{
+                DisplayName = $FirstDevice.DisplayName
+                Name        = $FirstDevice.Name
+                Path        = $FirstDevice.Path
+                Layout      = $FirstDevice.Layout
+            },
+            [pscustomobject]@{
+                DisplayName = $SecondDevice.DisplayName
+                Name        = $SecondDevice.Name
+                Path        = $SecondDevice.Path
+                Layout      = $SecondDevice.Layout
+            }
+        )
+    }
+    Save-RestoreManifest
+}
+
+function Add-RestoreOperation {
+    param(
+        [Parameter(Mandatory = $true)] $PlanItem,
+        [string] $BackupFile = ''
+    )
+
+    $backupRelativePath = ''
+    $backupSha256 = ''
+    if (-not [string]::IsNullOrWhiteSpace($BackupFile)) {
+        $rootWithSeparator = $script:RestoreRunRoot.TrimEnd('\') + '\'
+        if ($BackupFile.StartsWith($rootWithSeparator, [StringComparison]::OrdinalIgnoreCase)) {
+            $backupRelativePath = $BackupFile.Substring($rootWithSeparator.Length)
+            $backupSha256 = (Get-FileHash -LiteralPath $BackupFile -Algorithm SHA256).Hash
+        }
+        else {
+            throw "Backup file is outside the restore run directory: '$BackupFile'."
+        }
+    }
+
+    $script:RestoreOperations.Add([pscustomobject]@{
+        Action                = $PlanItem.Action
+        RelativePath          = $PlanItem.RelativePath
+        DestinationDeviceName = $PlanItem.DestinationDevice.DisplayName
+        DestinationDevicePath = $PlanItem.DestinationDevice.Path
+        DestinationLayout     = $PlanItem.DestinationDevice.Layout
+        ExpectedCurrentSize   = [int64] $PlanItem.SourceRecord.Size
+        OriginalSize          = if ($null -eq $PlanItem.DestinationRecord) { $null } else { [int64] $PlanItem.DestinationRecord.Size }
+        BackupRelativePath    = $backupRelativePath
+        BackupSha256          = $backupSha256
+        RecordedUtc           = (Get-Date).ToUniversalTime().ToString('o')
+    })
+    Save-RestoreManifest
+}
+
 function Invoke-SyncItem {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     param(
@@ -580,6 +818,8 @@ function Invoke-SyncItem {
 
     try {
         Write-Status ("COPY {0}" -f $description)
+
+        $backupFile = ''
 
         if ($null -ne $PlanItem.DestinationRecord) {
             $deviceBackup = ConvertTo-SafeName $PlanItem.DestinationDevice.DisplayName
@@ -614,6 +854,7 @@ function Invoke-SyncItem {
             Remove-Item -LiteralPath $stagingDirectory -Recurse -Force
         }
         Add-AuditRecord -PlanItem $PlanItem -Status 'Success' -Details $PlanItem.Reason
+        Add-RestoreOperation -PlanItem $PlanItem -BackupFile $backupFile
     }
     catch {
         $script:FailureCount++
@@ -664,6 +905,354 @@ function Write-AuditFiles {
     Write-Status ("Audit: {0}" -f $markdownPath)
 }
 
+function Resolve-MtpRelativeFile {
+    param(
+        [Parameter(Mandatory = $true)] $Device,
+        [Parameter(Mandatory = $true)] [string] $RelativePath
+    )
+
+    $parts = @($RelativePath -split '\\' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($parts.Count -lt 2) {
+        throw "Invalid restore relative path: '$RelativePath'."
+    }
+
+    $fileName = $parts[-1]
+    $parentParts = @($parts[0..($parts.Count - 2)])
+    $parent = Resolve-ChildPath -RootItem $Device.MapItem -Parts $parentParts
+    $item = if ($null -eq $parent) {
+        $null
+    }
+    else {
+        Get-ChildMtpItem -ParentItem $parent -Name $fileName
+    }
+
+    return [pscustomobject]@{
+        Item       = $item
+        Parent     = $parent
+        FileName   = $fileName
+        ParentPath = ($parentParts -join '\')
+    }
+}
+
+function Wait-MtpItemAbsent {
+    param(
+        [Parameter(Mandatory = $true)] $ParentFolder,
+        [Parameter(Mandatory = $true)] [string] $Name,
+        [Parameter(Mandatory = $true)] [int] $TimeoutSeconds
+    )
+
+    $deadline = (Get-Date).AddSeconds([math]::Min($TimeoutSeconds, 120))
+    do {
+        if ($null -eq (Get-ChildMtpItem -ParentItem $ParentFolder -Name $Name)) {
+            return
+        }
+        Start-Sleep -Milliseconds 500
+    } while ((Get-Date) -lt $deadline)
+
+    throw "MTP delete timeout: '$Name' is still present on the device."
+}
+
+function Remove-MtpItemSafely {
+    param(
+        [Parameter(Mandatory = $true)] $Item,
+        [Parameter(Mandatory = $true)] $ParentFolder,
+        [Parameter(Mandatory = $true)] [string] $Name,
+        [Parameter(Mandatory = $true)] [int] $TimeoutSeconds
+    )
+
+    [XCTrackMapSync.MtpShellOperations]::Delete($Item)
+    Wait-MtpItemAbsent `
+        -ParentFolder $ParentFolder `
+        -Name $Name `
+        -TimeoutSeconds $TimeoutSeconds
+}
+
+function Get-RestorePointsForDevice {
+    param([Parameter(Mandatory = $true)] [string] $DevicePath)
+
+    if (-not (Test-Path -LiteralPath $WorkRoot)) {
+        return @()
+    }
+
+    $points = New-Object System.Collections.Generic.List[object]
+    foreach ($directory in @(Get-ChildItem -LiteralPath $WorkRoot -Directory -ErrorAction SilentlyContinue |
+            Sort-Object -Property Name -Descending)) {
+        $manifestPath = Join-Path $directory.FullName 'restore-manifest.json'
+        if (-not (Test-Path -LiteralPath $manifestPath)) {
+            continue
+        }
+
+        try {
+            $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+            $operations = @($manifest.Operations | Where-Object {
+                $_.DestinationDevicePath -eq $DevicePath
+            })
+            if ($operations.Count -eq 0) {
+                continue
+            }
+
+            $deviceName = [string] $operations[0].DestinationDeviceName
+            $points.Add([pscustomobject]@{
+                RunId            = [string] $manifest.RunId
+                CreatedUtc       = [string] $manifest.CreatedUtc
+                ManifestPath     = $manifestPath
+                DeviceName       = $deviceName
+                RestoreBackups   = @($operations | Where-Object { $_.Action -eq 'ReplaceOlder' }).Count
+                RemoveAddedFiles = @($operations | Where-Object { $_.Action -eq 'CopyMissing' }).Count
+                TotalOperations  = $operations.Count
+            })
+        }
+        catch {
+            Write-Warning ("Skipping invalid restore manifest '{0}': {1}" -f $manifestPath, $_.Exception.Message)
+        }
+    }
+    return $points.ToArray()
+}
+
+function Invoke-DeviceRestore {
+    param(
+        [Parameter(Mandatory = $true)] [object[]] $ConnectedDevices,
+        [Parameter(Mandatory = $true)] [string] $DevicePath,
+        [Parameter(Mandatory = $true)] [string] $ManifestPath,
+        [Parameter(Mandatory = $true)] [int] $TimeoutSeconds
+    )
+
+    $device = @($ConnectedDevices | Where-Object { $_.Path -eq $DevicePath }) | Select-Object -First 1
+    if ($null -eq $device) {
+        throw 'The selected restore device is not connected or its USB identity changed.'
+    }
+
+    $resolvedRoot = [IO.Path]::GetFullPath($WorkRoot).TrimEnd('\') + '\'
+    $resolvedManifest = [IO.Path]::GetFullPath($ManifestPath)
+    if (-not $resolvedManifest.StartsWith($resolvedRoot, [StringComparison]::OrdinalIgnoreCase) -or
+        [IO.Path]::GetFileName($resolvedManifest) -ne 'restore-manifest.json') {
+        throw 'The restore manifest must be inside the XCTrackMapSync work directory.'
+    }
+    if (-not (Test-Path -LiteralPath $resolvedManifest)) {
+        throw "Restore manifest not found: '$resolvedManifest'."
+    }
+
+    $manifest = Get-Content -LiteralPath $resolvedManifest -Raw | ConvertFrom-Json
+    [array] $operations = @($manifest.Operations | Where-Object {
+        $_.DestinationDevicePath -eq $DevicePath
+    })
+    if ($operations.Count -eq 0) {
+        throw 'The selected restore point has no operations for this device.'
+    }
+    [array]::Reverse($operations)
+
+    $runRoot = Split-Path -Parent $resolvedManifest
+    $restoreId = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $quarantineRoot = Join-Path (Join-Path $runRoot 'restore-quarantine') $restoreId
+    $restoreAudit = New-Object System.Collections.Generic.List[object]
+    $successCount = 0
+    $skippedCount = 0
+    $failureCount = 0
+    $index = 0
+
+    foreach ($operation in $operations) {
+        $index++
+        if ($GuiRestore) {
+            $progressPayload = [pscustomobject]@{
+                Current     = $index
+                Total       = $operations.Count
+                Path        = [string] $operation.RelativePath
+                Action      = [string] $operation.Action
+                Destination = $device.DisplayName
+            }
+            Write-Output ('XCT_RESTORE_PROGRESS:' + ($progressPayload | ConvertTo-Json -Compress))
+        }
+
+        $status = 'Failed'
+        $details = ''
+        $quarantineFile = ''
+        $currentWasRemoved = $false
+        try {
+            $resolved = Resolve-MtpRelativeFile -Device $device -RelativePath ([string] $operation.RelativePath)
+            $currentItem = $resolved.Item
+            $expectedCurrentSize = [int64] $operation.ExpectedCurrentSize
+
+            if ([string] $operation.Action -eq 'CopyMissing') {
+                if ($null -eq $currentItem) {
+                    $status = 'AlreadyRestored'
+                    $details = 'The synchronized file is already absent.'
+                    $successCount++
+                    continue
+                }
+
+                $currentSize = Get-MtpItemSize -Item $currentItem
+                if ($currentSize -ne $expectedCurrentSize) {
+                    $status = 'ConflictSkipped'
+                    $details = "Current size $currentSize differs from synchronized size $expectedCurrentSize."
+                    $skippedCount++
+                    continue
+                }
+
+                $quarantineDirectory = Join-Path `
+                    (Join-Path $quarantineRoot (ConvertTo-SafeName $device.DisplayName)) `
+                    $resolved.ParentPath
+                $quarantineFile = Copy-MtpItemToLocal `
+                    -SourceItem $currentItem `
+                    -DestinationDirectory $quarantineDirectory `
+                    -ExpectedSize $currentSize `
+                    -TimeoutSeconds $TimeoutSeconds
+                Remove-MtpItemSafely `
+                    -Item $currentItem `
+                    -ParentFolder $resolved.Parent `
+                    -Name $resolved.FileName `
+                    -TimeoutSeconds $TimeoutSeconds
+                $currentWasRemoved = $true
+                $status = 'Success'
+                $details = "Added file removed from the device after a safety copy was saved to '$quarantineFile'."
+                $successCount++
+                continue
+            }
+
+            if ([string] $operation.Action -ne 'ReplaceOlder') {
+                $status = 'Skipped'
+                $details = "Unsupported restore action: $($operation.Action)"
+                $skippedCount++
+                continue
+            }
+
+            $backupFile = Join-Path $runRoot ([string] $operation.BackupRelativePath)
+            $resolvedBackup = [IO.Path]::GetFullPath($backupFile)
+            $runRootWithSeparator = [IO.Path]::GetFullPath($runRoot).TrimEnd('\') + '\'
+            if (-not $resolvedBackup.StartsWith($runRootWithSeparator, [StringComparison]::OrdinalIgnoreCase) -or
+                -not (Test-Path -LiteralPath $resolvedBackup)) {
+                throw "Restore backup is missing or outside the run directory: '$backupFile'."
+            }
+
+            $originalSize = [int64] $operation.OriginalSize
+            if ((Get-Item -LiteralPath $resolvedBackup).Length -ne $originalSize) {
+                throw "Restore backup size does not match the manifest: '$resolvedBackup'."
+            }
+            $backupHashProperty = $operation.PSObject.Properties['BackupSha256']
+            $expectedBackupHash = if ($null -eq $backupHashProperty) { '' } else { [string] $backupHashProperty.Value }
+            if (-not [string]::IsNullOrWhiteSpace($expectedBackupHash)) {
+                $actualBackupHash = (Get-FileHash -LiteralPath $resolvedBackup -Algorithm SHA256).Hash
+                if ($actualBackupHash -ine $expectedBackupHash) {
+                    throw "Restore backup SHA-256 does not match the manifest: '$resolvedBackup'."
+                }
+            }
+
+            if ($null -ne $currentItem) {
+                $currentSize = Get-MtpItemSize -Item $currentItem
+                if ($currentSize -eq $originalSize) {
+                    $status = 'AlreadyRestored'
+                    $details = 'The original-size file is already present.'
+                    $successCount++
+                    continue
+                }
+                if ($currentSize -ne $expectedCurrentSize) {
+                    $status = 'ConflictSkipped'
+                    $details = "Current size $currentSize differs from synchronized size $expectedCurrentSize."
+                    $skippedCount++
+                    continue
+                }
+
+                $quarantineDirectory = Join-Path `
+                    (Join-Path $quarantineRoot (ConvertTo-SafeName $device.DisplayName)) `
+                    $resolved.ParentPath
+                $quarantineFile = Copy-MtpItemToLocal `
+                    -SourceItem $currentItem `
+                    -DestinationDirectory $quarantineDirectory `
+                    -ExpectedSize $currentSize `
+                    -TimeoutSeconds $TimeoutSeconds
+                Remove-MtpItemSafely `
+                    -Item $currentItem `
+                    -ParentFolder $resolved.Parent `
+                    -Name $resolved.FileName `
+                    -TimeoutSeconds $TimeoutSeconds
+                $currentWasRemoved = $true
+            }
+
+            $destinationFolder = Get-OrCreateMtpFolderPath `
+                -RootItem $device.MapItem `
+                -RelativeFolder $resolved.ParentPath `
+                -TimeoutSeconds $TimeoutSeconds
+            $null = Copy-LocalFileToMtp `
+                -SourcePath $resolvedBackup `
+                -DestinationFolder $destinationFolder `
+                -ExpectedSize $originalSize `
+                -TimeoutSeconds $TimeoutSeconds
+            $status = 'Success'
+            $details = "Original file restored from: $resolvedBackup"
+            $successCount++
+        }
+        catch {
+            $failureCount++
+            $details = $_.Exception.Message
+            if ($currentWasRemoved -and
+                [string] $operation.Action -eq 'ReplaceOlder' -and
+                -not [string]::IsNullOrWhiteSpace($quarantineFile) -and
+                (Test-Path -LiteralPath $quarantineFile)) {
+                try {
+                    $resolved = Resolve-MtpRelativeFile -Device $device -RelativePath ([string] $operation.RelativePath)
+                    if ($null -eq $resolved.Parent) {
+                        throw "The original parent folder is no longer available: '$($resolved.ParentPath)'."
+                    }
+
+                    if ($null -ne $resolved.Item) {
+                        $failedCopySize = Get-MtpItemSize -Item $resolved.Item
+                        $failedCopyDirectory = Join-Path `
+                            (Join-Path $quarantineRoot (ConvertTo-SafeName $device.DisplayName)) `
+                            ('failed-restore\' + $resolved.ParentPath)
+                        $failedCopyFile = Copy-MtpItemToLocal `
+                            -SourceItem $resolved.Item `
+                            -DestinationDirectory $failedCopyDirectory `
+                            -ExpectedSize $failedCopySize `
+                            -TimeoutSeconds $TimeoutSeconds
+                        Remove-MtpItemSafely `
+                            -Item $resolved.Item `
+                            -ParentFolder $resolved.Parent `
+                            -Name $resolved.FileName `
+                            -TimeoutSeconds $TimeoutSeconds
+                        $details += " The failed restore copy was preserved at '$failedCopyFile'."
+                    }
+
+                    $rollbackSize = (Get-Item -LiteralPath $quarantineFile).Length
+                    $null = Copy-LocalFileToMtp `
+                        -SourcePath $quarantineFile `
+                        -DestinationFolder $resolved.Parent `
+                        -ExpectedSize $rollbackSize `
+                        -TimeoutSeconds $TimeoutSeconds
+                    $details += ' The synchronized file was copied back to the device.'
+                }
+                catch {
+                    $details += " Automatic rollback also failed: $($_.Exception.Message)"
+                }
+            }
+        }
+        finally {
+            $restoreAudit.Add([pscustomobject]@{
+                Timestamp    = (Get-Date).ToString('s')
+                Device       = $device.DisplayName
+                Action       = [string] $operation.Action
+                RelativePath = [string] $operation.RelativePath
+                Status       = $status
+                Details      = $details
+            })
+        }
+    }
+
+    $auditPath = Join-Path $runRoot ("restore-{0}-{1}.csv" -f $restoreId, (ConvertTo-SafeName $device.DisplayName))
+    $restoreAudit | Export-Csv -LiteralPath $auditPath -NoTypeInformation -Encoding UTF8 -WhatIf:$false
+
+    $donePayload = [pscustomobject]@{
+        Device   = $device.DisplayName
+        Restored = $successCount
+        Skipped  = $skippedCount
+        Failures = $failureCount
+        Audit    = $auditPath
+    }
+    Write-Output ('XCT_RESTORE_DONE:' + ($donePayload | ConvertTo-Json -Compress))
+
+    if ($failureCount -gt 0) {
+        throw "Restore completed with $failureCount failed operation(s). See '$auditPath'."
+    }
+}
+
 try {
     Write-Status 'Searching for connected XCTrack MTP devices...'
     $devices = @(Get-XCTrackDevices)
@@ -678,6 +1267,34 @@ try {
             }
         })
         Write-Output ('XCT_JSON:' + (ConvertTo-Json -InputObject $statusPayload -Compress))
+        exit 0
+    }
+
+    if ($GuiListRestoresJson) {
+        if ([string]::IsNullOrWhiteSpace($RestoreDevicePath)) {
+            throw 'RestoreDevicePath is required with GuiListRestoresJson.'
+        }
+        $connected = @($devices | Where-Object { $_.Path -eq $RestoreDevicePath })
+        $restorePoints = if ($connected.Count -eq 0) {
+            @()
+        }
+        else {
+            @(Get-RestorePointsForDevice -DevicePath $RestoreDevicePath)
+        }
+        Write-Output ('XCT_RESTORE_POINTS:' + (ConvertTo-Json -InputObject $restorePoints -Depth 5 -Compress))
+        exit 0
+    }
+
+    if ($GuiRestore) {
+        if ([string]::IsNullOrWhiteSpace($RestoreDevicePath) -or
+            [string]::IsNullOrWhiteSpace($RestoreManifest)) {
+            throw 'RestoreDevicePath and RestoreManifest are required with GuiRestore.'
+        }
+        Invoke-DeviceRestore `
+            -ConnectedDevices $devices `
+            -DevicePath $RestoreDevicePath `
+            -ManifestPath $RestoreManifest `
+            -TimeoutSeconds $TransferTimeoutSeconds
         exit 0
     }
 
@@ -787,6 +1404,10 @@ try {
     # protected by ShouldProcess in Invoke-SyncItem.
     $null = New-Item -ItemType Directory -Path $stagingRoot -Force -WhatIf:$false
     $null = New-Item -ItemType Directory -Path $backupRoot -Force -WhatIf:$false
+    Initialize-RestoreManifest `
+        -RunRoot $runRoot `
+        -FirstDevice $firstDevice `
+        -SecondDevice $secondDevice
 
     $progressIndex = 0
     foreach ($planItem in $planResult.Items) {

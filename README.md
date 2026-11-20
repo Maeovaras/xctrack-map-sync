@@ -16,6 +16,8 @@
    `XCTrackMapSync.exe` in Windows Explorer.
 5. Wait for the comparison, review the changes, and click **Synchronize**.
    Keep both devices connected and unlocked until it finishes.
+6. If you need to undo the latest synchronization for one device, connect that
+   device and click **Restore A** or **Restore B**.
 
 That is all. No terminal is required. Choose **English** or **Lietuvių** in the
 upper-right corner; the application remembers your choice.
@@ -31,8 +33,21 @@ The application:
 - shows which device is missing files or has older versions;
 - copies missing files in both directions;
 - replaces an older different-size file only when the newer side is clear;
-- never deletes files;
-- creates a local backup before replacement and writes an audit log.
+- never deletes files during synchronization;
+- creates a local restore point and audit log after synchronization;
+- can restore either device to its state before its latest synchronization.
+
+## Restore a device
+
+The **Restore A** and **Restore B** buttons operate independently. The app uses
+the newest matching restore point for the selected device. It restores replaced
+files from the local backup and removes files that were added only by that
+synchronization. Before removing an added file, it saves another local safety
+copy.
+
+Close XCTrack and keep the selected device connected and unlocked until the
+restore finishes. Restore data and CSV audits are stored under
+`Documents\XCTrackMapSync`.
 
 ## Screenshots
 
@@ -46,8 +61,9 @@ The application:
 - **[Techninė dokumentacija lietuviškai](docs/README-TECHNICAL-LT.md)**
 - [License](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md)
 
-The program never deletes map files, but important files should still have an
-independent backup.
+Synchronization never deletes map files. Restore intentionally removes files
+that the selected synchronization added, but only after saving a local safety
+copy. Important files should still have an independent backup.
 
 ## Trademarks and affiliation
 

@@ -8,6 +8,9 @@ internal sealed class MainForm : Form
     private const string JsonPrefix = "XCT_JSON:";
     private const string ProgressPrefix = "XCT_PROGRESS:";
     private const string DonePrefix = "XCT_DONE:";
+    private const string RestorePointsPrefix = "XCT_RESTORE_POINTS:";
+    private const string RestoreProgressPrefix = "XCT_RESTORE_PROGRESS:";
+    private const string RestoreDonePrefix = "XCT_RESTORE_DONE:";
 
     private readonly PowerShellEngine _engine = new();
     private readonly DeviceCard _deviceA = new("Device A");
@@ -24,6 +27,8 @@ internal sealed class MainForm : Form
     private readonly Label _equalLabel = new();
     private readonly Button _refreshButton = new();
     private readonly Button _syncButton = new();
+    private readonly Button _restoreAButton = new();
+    private readonly Button _restoreBButton = new();
     private readonly ProgressBar _progress = new();
     private readonly RichTextBox _log = new();
     private readonly System.Windows.Forms.Timer _timer = new();
@@ -178,13 +183,15 @@ internal sealed class MainForm : Form
         var actions = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 2,
+            ColumnCount = 4,
             RowCount = 1,
             Margin = Padding.Empty,
             Padding = Padding.Empty
         };
         actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 230));
+        actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+        actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+        actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 215));
         _progress.Dock = DockStyle.Fill;
         _progress.Height = 10;
         _progress.Anchor = AnchorStyles.Left | AnchorStyles.Right;
@@ -196,8 +203,25 @@ internal sealed class MainForm : Form
         _syncButton.Margin = Padding.Empty;
         StylePrimaryButton(_syncButton);
         _syncButton.Click += async (_, _) => await SynchronizeAsync();
+
+        _restoreAButton.Enabled = false;
+        _restoreAButton.Size = new Size(140, 42);
+        _restoreAButton.Anchor = AnchorStyles.Right;
+        _restoreAButton.Margin = new Padding(0, 0, 8, 0);
+        StyleSecondaryButton(_restoreAButton);
+        _restoreAButton.Click += async (_, _) => await RestoreDeviceAsync(0);
+
+        _restoreBButton.Enabled = false;
+        _restoreBButton.Size = new Size(140, 42);
+        _restoreBButton.Anchor = AnchorStyles.Right;
+        _restoreBButton.Margin = new Padding(0, 0, 8, 0);
+        StyleSecondaryButton(_restoreBButton);
+        _restoreBButton.Click += async (_, _) => await RestoreDeviceAsync(1);
+
         actions.Controls.Add(_progress, 0, 0);
-        actions.Controls.Add(_syncButton, 1, 0);
+        actions.Controls.Add(_restoreAButton, 1, 0);
+        actions.Controls.Add(_restoreBButton, 2, 0);
+        actions.Controls.Add(_syncButton, 3, 0);
 
         var logPanel = new Panel
         {
@@ -488,6 +512,174 @@ internal sealed class MainForm : Form
         await RefreshAndCompareAsync(showErrors: false);
     }
 
+    private async Task RestoreDeviceAsync(int deviceIndex)
+    {
+        if (_busy || deviceIndex < 0 || deviceIndex >= _lastDevices.Count)
+        {
+            return;
+        }
+
+        var device = _lastDevices[deviceIndex];
+        var restoreCompleted = false;
+        _timer.Stop();
+        SetBusy(true, T("Ieškoma tinkamos atsarginės kopijos...", "Looking for a matching backup..."));
+        try
+        {
+            var listResult = await _engine.RunAsync(
+                new[] { "-GuiListRestoresJson", "-RestoreDevicePath", device.Path },
+                line => HandleEngineLine(line, includeProtocolLines: false),
+                _closing.Token,
+                TimeSpan.FromSeconds(45));
+
+            var pointsPayload = listResult.FindPayload(RestorePointsPrefix);
+            if (listResult.ExitCode != 0 || string.IsNullOrWhiteSpace(pointsPayload))
+            {
+                throw new InvalidOperationException(BuildError(
+                    listResult,
+                    T("Nepavyko nuskaityti atkūrimo kopijų.", "Could not read restore points.")));
+            }
+
+            var points = JsonSerializer.Deserialize<List<RestorePointInfo>>(pointsPayload, _jsonOptions) ?? new();
+            if (points.Count == 0)
+            {
+                MessageBox.Show(
+                    this,
+                    T(
+                        "Šiam įrenginiui dar nėra atkūrimo kopijos. Ji bus sukurta po kito sėkmingo sinchronizavimo.",
+                        "No restore point exists for this device yet. One will be created by the next successful synchronization."),
+                    T("Nėra atkūrimo kopijos", "No restore point"),
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                return;
+            }
+
+            var point = points[0];
+            var restoreDate = point.RunId;
+            if (DateTimeOffset.TryParse(
+                    point.CreatedUtc,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind,
+                    out var created))
+            {
+                restoreDate = created.ToLocalTime().ToString("g", UiCulture);
+            }
+
+            var confirmation = T(
+                $"Atkurti {device.DisplayName} pagal {restoreDate} kopiją?{Environment.NewLine}{Environment.NewLine}" +
+                $"Iš atsarginės kopijos bus grąžinta failų: {N(point.RestoreBackups)}.{Environment.NewLine}" +
+                $"Pridėtų failų prieš pašalinimą bus nukopijuota į vietinį karantiną: {N(point.RemoveAddedFiles)}.{Environment.NewLine}{Environment.NewLine}" +
+                "Uždarykite XCTrack ir iki pabaigos neatjunkite įrenginio.",
+                $"Restore {device.DisplayName} to the {restoreDate} backup?{Environment.NewLine}{Environment.NewLine}" +
+                $"Files restored from backup: {N(point.RestoreBackups)}.{Environment.NewLine}" +
+                $"Added files copied to local quarantine before removal: {N(point.RemoveAddedFiles)}.{Environment.NewLine}{Environment.NewLine}" +
+                "Close XCTrack and keep the device connected until the restore finishes.");
+
+            if (MessageBox.Show(
+                    this,
+                    confirmation,
+                    T("Patvirtinti atkūrimą", "Confirm restore"),
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning,
+                    MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+            {
+                return;
+            }
+
+            _progress.Style = ProgressBarStyle.Continuous;
+            _progress.Minimum = 0;
+            _progress.Maximum = Math.Max(1, point.TotalOperations);
+            _progress.Value = 0;
+            _statusLabel.Text = T(
+                $"Atkuriamas {device.DisplayName}...",
+                $"Restoring {device.DisplayName}...");
+            AppendLog(T(
+                $"Pradėtas {device.DisplayName} atkūrimas pagal {restoreDate} kopiją.",
+                $"Started restoring {device.DisplayName} from the {restoreDate} backup."), false);
+
+            var restoreResult = await _engine.RunAsync(
+                new[]
+                {
+                    "-GuiRestore",
+                    "-RestoreDevicePath", device.Path,
+                    "-RestoreManifest", point.ManifestPath
+                },
+                line =>
+                {
+                    HandleEngineLine(line, includeProtocolLines: false);
+                    if (line.Text.StartsWith(RestoreProgressPrefix, StringComparison.Ordinal))
+                    {
+                        var progress = JsonSerializer.Deserialize<ProgressInfo>(
+                            line.Text[RestoreProgressPrefix.Length..],
+                            _jsonOptions);
+                        if (progress is not null)
+                        {
+                            SafeUi(() =>
+                            {
+                                _progress.Maximum = Math.Max(1, progress.Total);
+                                _progress.Value = Math.Clamp(progress.Current - 1, 0, _progress.Maximum);
+                                _statusLabel.Text = $"{N(progress.Current)}/{N(progress.Total)}: {progress.Path}";
+                            });
+                        }
+                    }
+                },
+                _closing.Token);
+
+            if (restoreResult.ExitCode != 0)
+            {
+                throw new InvalidOperationException(BuildError(
+                    restoreResult,
+                    T("Atkūrimas nepavyko.", "Restore failed.")));
+            }
+
+            var donePayload = restoreResult.FindPayload(RestoreDonePrefix);
+            var done = string.IsNullOrWhiteSpace(donePayload)
+                ? null
+                : JsonSerializer.Deserialize<RestoreDoneInfo>(donePayload, _jsonOptions);
+            _progress.Value = _progress.Maximum;
+            restoreCompleted = true;
+
+            var resultMessage = done is null
+                ? T("Atkūrimas baigtas.", "Restore completed.")
+                : T(
+                    $"Atkūrimas baigtas. Atkurta: {N(done.Restored)}, praleista: {N(done.Skipped)}, klaidų: {N(done.Failures)}.{Environment.NewLine}{Environment.NewLine}Auditas: {done.Audit}",
+                    $"Restore completed. Restored: {N(done.Restored)}, skipped: {N(done.Skipped)}, failures: {N(done.Failures)}.{Environment.NewLine}{Environment.NewLine}Audit: {done.Audit}");
+            AppendLog(resultMessage, false);
+            MessageBox.Show(
+                this,
+                resultMessage + Environment.NewLine + Environment.NewLine +
+                T("Iš naujo paleiskite XCTrack.", "Restart XCTrack."),
+                T("Atkūrimas baigtas", "Restore complete"),
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+        catch (OperationCanceledException) when (_closing.IsCancellationRequested)
+        {
+            // The application is closing.
+        }
+        catch (Exception ex)
+        {
+            AppendLog(T("ATKŪRIMO KLAIDA: ", "RESTORE ERROR: ") + ex.Message, true);
+            MessageBox.Show(
+                this,
+                ex.Message,
+                T("Atkūrimo klaida", "Restore error"),
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
+        finally
+        {
+            SetBusy(false, restoreCompleted
+                ? T("Atkūrimas baigtas.", "Restore completed.")
+                : GetWaitingStatus(_lastDevices.Count));
+            _timer.Start();
+        }
+
+        if (restoreCompleted)
+        {
+            await RefreshAndCompareAsync(showErrors: false);
+        }
+    }
+
     private void UpdateDeviceState(IReadOnlyList<DeviceStatus> devices)
     {
         _lastDevices = devices;
@@ -532,6 +724,12 @@ internal sealed class MainForm : Form
             }
 
             _lastLoggedDeviceStateKey = stateKey;
+        }
+
+        if (!_busy)
+        {
+            _restoreAButton.Enabled = devices.Count > 0;
+            _restoreBButton.Enabled = devices.Count > 1;
         }
     }
 
@@ -618,7 +816,26 @@ internal sealed class MainForm : Form
             TotalBytes = 9_556_967_424
         };
 
+        _lastDevices = new[]
+        {
+            new DeviceStatus
+            {
+                DisplayName = "AIR3-7.3+ #1",
+                Name = "AIR3-7.3+",
+                Layout = "Android-data",
+                Path = "demo-device-a"
+            },
+            new DeviceStatus
+            {
+                DisplayName = "AIR3-7.3+ #2",
+                Name = "AIR3-7.3+",
+                Layout = "Android-data",
+                Path = "demo-device-b"
+            }
+        };
         _busy = false;
+        _restoreAButton.Enabled = true;
+        _restoreBButton.Enabled = true;
         _progress.Style = ProgressBarStyle.Continuous;
         _comparison = comparison;
         UpdateComparison(comparison);
@@ -635,6 +852,8 @@ internal sealed class MainForm : Form
                 _comparison = comparison;
                 _busy = true;
                 _refreshButton.Enabled = false;
+                _restoreAButton.Enabled = false;
+                _restoreBButton.Enabled = false;
                 _syncButton.Enabled = false;
                 _syncButton.Text = T("Sinchronizuojama...", "Synchronizing...");
                 _progress.Minimum = 0;
@@ -707,6 +926,8 @@ internal sealed class MainForm : Form
         _busy = busy;
         _refreshButton.Enabled = !busy;
         _languageCombo.Enabled = !busy;
+        _restoreAButton.Enabled = !busy && _lastDevices.Count > 0;
+        _restoreBButton.Enabled = !busy && _lastDevices.Count > 1;
         _syncButton.Enabled = !busy && _comparison is { Transfers: > 0 };
         _statusLabel.Text = status;
         UseWaitCursor = busy;
@@ -718,10 +939,20 @@ internal sealed class MainForm : Form
 
     private void HandleEngineLine(PowerShellLine line, bool includeProtocolLines)
     {
+        if (line.Text.EndsWith(
+                "Searching for connected XCTrack MTP devices...",
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
         if (!includeProtocolLines &&
             (line.Text.StartsWith(JsonPrefix, StringComparison.Ordinal) ||
              line.Text.StartsWith(ProgressPrefix, StringComparison.Ordinal) ||
-             line.Text.StartsWith(DonePrefix, StringComparison.Ordinal)))
+             line.Text.StartsWith(DonePrefix, StringComparison.Ordinal) ||
+             line.Text.StartsWith(RestorePointsPrefix, StringComparison.Ordinal) ||
+             line.Text.StartsWith(RestoreProgressPrefix, StringComparison.Ordinal) ||
+             line.Text.StartsWith(RestoreDonePrefix, StringComparison.Ordinal)))
         {
             return;
         }
@@ -748,9 +979,11 @@ internal sealed class MainForm : Form
             "Prijunkite ir atrakinkite abu AIR³ įrenginius USB File transfer režimu.",
             "Connect and unlock both AIR³ devices in USB File transfer mode.");
         _refreshButton.Text = T("Atnaujinti", "Refresh");
+        _restoreAButton.Text = T("Atkurti A", "Restore A");
+        _restoreBButton.Text = T("Atkurti B", "Restore B");
         _footerLabel.Text = T(
-            "Failai netrinami • Keičiami failai išsaugomi atsarginėje kopijoje • Kuriamas auditas",
-            "Files are never deleted • Replaced files are backed up • An audit is created");
+            "Sinchronizuojant failai netrinami • Keičiami failai išsaugomi • Kuriamas auditas",
+            "Synchronization never deletes files • Replaced files are backed up • An audit is created");
 
         _deviceA.SetLanguage(
             T("Įrenginys A", "Device A"),

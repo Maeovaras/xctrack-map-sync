@@ -31,7 +31,7 @@ minutes, konfliktas praleidžiamas ir pažymimas audite. Vienodo kelio ir dydži
 failai laikomi identiškais, nes kai kurie MTP įrenginiai kopijuodami pakeičia
 failo datą.
 
-Programa žemėlapių failų niekada netrina.
+Sinchronizavimo metu programa žemėlapių failų netrina.
 
 ## Saugumas, atsarginė kopija ir auditas
 
@@ -40,11 +40,30 @@ Programa žemėlapių failų niekada netrina.
   įrenginyje.
 - Prieš pakeitimą senasis failas išsaugomas
   `Documents\XCTrackMapSync\<data>\backup`.
+- Kiekvienas sėkmingas perkėlimas įrašomas į `restore-manifest.json`. Vietinės
+  pakeistų failų kopijos turi SHA-256 reikšmę, kuri patikrinama atkuriant.
 - Kiekvieno paleidimo rezultatai įrašomi į `audit.md` ir `audit.csv`.
 - Atjungtas laidas, užrakintas įrenginys ar atšauktas Android leidimas gali
   nutraukti MTP operaciją. Svarbius failus rekomenduojama saugoti ir atskirai.
 
 Po sėkmingo sinchronizavimo abiejuose įrenginiuose iš naujo paleiskite XCTrack.
+
+## Atkūrimo veikimas
+
+**Atkurti A** ir **Atkurti B** parenka naujausią prijungtam įrenginiui tinkamą
+atkūrimo manifestą. Sėkmingų perkėlimų įrašai apdorojami atvirkštine tvarka:
+
+- pakeistas senesnis failas grąžinamas iš patikrintos vietinės kopijos;
+- tik sinchronizavimo metu pridėtas failas nukopijuojamas į vietinį atkūrimo
+  karantiną ir tada pašalinamas iš įrenginio;
+- jei dabartinis failo dydis nesutampa su įrašytu sinchronizuoto failo dydžiu,
+  jis laikomas konfliktu ir nekeičiamas;
+- jei seno failo nepavyksta grąžinti, programa bando iš vietinės apsauginės
+  kopijos vėl įkelti sinchronizuotą failą.
+
+Atkūrimo rezultatai įrašomi į atskirą `restore-*.csv` auditą pradinio paleidimo
+kataloge. Atkūrimo metu XCTrack turi būti uždarytas, o įrenginys turi likti
+prijungtas ir atrakintas.
 
 ## PowerShell variklis
 

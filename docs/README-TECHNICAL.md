@@ -31,7 +31,7 @@ conflict is skipped and recorded in the audit. Files with the same path and
 size are treated as identical because some MTP devices change timestamps while
 copying.
 
-The program never deletes map files.
+Synchronization never deletes map files.
 
 ## Safety, backup, and audit
 
@@ -40,11 +40,31 @@ The program never deletes map files.
 - File sizes are checked at the source, in staging, and on the destination.
 - Before replacement, the existing file is saved under
   `Documents\XCTrackMapSync\<date>\backup`.
+- Every successful transfer is recorded in `restore-manifest.json`. Local
+  replacement backups include a SHA-256 value so restore can validate them.
 - Each run writes `audit.md` and `audit.csv`.
 - A disconnected cable, locked device, or revoked Android permission can
   interrupt MTP operations. Keep an independent backup of important files.
 
 Restart XCTrack on both devices after a successful synchronization.
+
+## Restore behavior
+
+**Restore A** and **Restore B** use the newest matching restore manifest for the
+selected connected device. Restore processes the successful transfer records
+in reverse order:
+
+- a replaced older file is restored from the verified local backup;
+- a file added only by synchronization is copied to a local restore quarantine
+  and then removed from the device;
+- a file whose current size differs from the recorded synchronized size is
+  treated as a conflict and left unchanged;
+- if copying an older file back fails, the app attempts to return the
+  synchronized file from its local safety copy.
+
+Restore writes a separate `restore-*.csv` audit under the original run
+directory. XCTrack must be closed and the device must remain connected and
+unlocked during the operation.
 
 ## PowerShell engine
 

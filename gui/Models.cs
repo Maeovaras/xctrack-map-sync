@@ -54,6 +54,26 @@ internal sealed class DoneInfo
     public string Audit { get; set; } = string.Empty;
 }
 
+internal sealed class RestorePointInfo
+{
+    public string RunId { get; set; } = string.Empty;
+    public string CreatedUtc { get; set; } = string.Empty;
+    public string ManifestPath { get; set; } = string.Empty;
+    public string DeviceName { get; set; } = string.Empty;
+    public int RestoreBackups { get; set; }
+    public int RemoveAddedFiles { get; set; }
+    public int TotalOperations { get; set; }
+}
+
+internal sealed class RestoreDoneInfo
+{
+    public string Device { get; set; } = string.Empty;
+    public int Restored { get; set; }
+    public int Skipped { get; set; }
+    public int Failures { get; set; }
+    public string Audit { get; set; } = string.Empty;
+}
+
 internal sealed record PowerShellLine(string Text, bool IsError);
 
 internal sealed record PowerShellResult(int ExitCode, IReadOnlyList<PowerShellLine> Lines)
