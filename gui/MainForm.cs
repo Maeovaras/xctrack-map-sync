@@ -12,7 +12,7 @@ internal sealed class MainForm : Form
     private const string RestoreProgressPrefix = "XCT_RESTORE_PROGRESS:";
     private const string RestoreDonePrefix = "XCT_RESTORE_DONE:";
 
-    private readonly PowerShellEngine _engine = new();
+    private PowerShellEngine? _engine;
     private readonly DeviceCard _deviceA = new("Device A");
     private readonly DeviceCard _deviceB = new("Device B");
     private readonly Label _titleLabel = new();
@@ -44,6 +44,7 @@ internal sealed class MainForm : Form
     private IReadOnlyList<DeviceStatus> _lastDevices = Array.Empty<DeviceStatus>();
     private IReadOnlyList<DeviceStatus> _usbDevices = Array.Empty<DeviceStatus>();
     private IReadOnlyList<DeviceStatus> _readyDevices = Array.Empty<DeviceStatus>();
+    private Task<IReadOnlyList<DeviceStatus>>? _initialUsbDetection;
     private string _comparedDevicesKey = string.Empty;
 
     // Per-device map statistics, keyed by USB identity. Counting ~5 000 terrain
@@ -53,10 +54,21 @@ internal sealed class MainForm : Form
     private string _lastLoggedDeviceStateKey = string.Empty;
     private UiLanguage _language;
 
+    // Extracting the embedded PowerShell engine from a single-file EXE can be
+    // delayed by Windows security scanning. Do it only after the window and the
+    // immediate native USB status have been painted.
+    private PowerShellEngine Engine => _engine ??= new PowerShellEngine();
+
     public MainForm(string? demoMode = null, string? languageOverride = null)
     {
         _demoMode = demoMode;
         _language = LoadLanguage(languageOverride);
+        if (string.IsNullOrWhiteSpace(_demoMode))
+        {
+            // Run the first native USB lookup while the interface is being built.
+            // By the time the window is shown, its result is normally ready.
+            _initialUsbDetection = Task.Run(WindowsUsbDetector.GetConnectedAir3Devices);
+        }
         Text = "XCTrack Map Sync";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(1_012, 782);
@@ -339,33 +351,25 @@ internal sealed class MainForm : Form
         {
             try
             {
-                var usbResult = await _engine.RunAsync(
-                    new[] { "-GuiUsbStatusJson" },
-                    line => HandleEngineLine(line, includeProtocolLines: false),
-                    _closing.Token,
-                    TimeSpan.FromSeconds(8));
-                var usbPayload = usbResult.FindPayload(JsonPrefix);
-                if (usbResult.ExitCode == 0 && !string.IsNullOrWhiteSpace(usbPayload))
-                {
-                    var usbDevices = JsonSerializer.Deserialize<List<DeviceStatus>>(usbPayload, _jsonOptions) ?? new();
+                var usbDevices = await DetectUsbDevicesAsync();
 
-                    // A ready device stays ready while it is still on USB. Only
-                    // drop it here if the USB check saw it before and now does not
-                    // (the cable was pulled); the folder scan below decides the rest.
-                    var previousUsb = _usbDevices.Select(device => device.Identity).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                    var currentUsb = usbDevices.Select(device => device.Identity).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                    var stillReady = _readyDevices.Where(device =>
-                        !previousUsb.Contains(device.Identity) || currentUsb.Contains(device.Identity));
+                // A ready device stays ready while it is still on USB. Only drop
+                // it here if this check saw it before and it is now disconnected;
+                // the full XCTrack folder scan below remains authoritative.
+                var previousUsb = _usbDevices.Select(device => device.Identity).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var currentUsb = usbDevices.Select(device => device.Identity).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var stillReady = _readyDevices.Where(device =>
+                    !previousUsb.Contains(device.Identity) || currentUsb.Contains(device.Identity));
 
-                    _usbDevices = usbDevices;
-                    var merged = MergeDevices(stillReady, usbDevices);
-                    UpdateDeviceState(merged);
-                    _statusLabel.Text = GetWaitingStatus(merged);
-                }
-                else
-                {
-                    _usbDevices = Array.Empty<DeviceStatus>();
-                }
+                _usbDevices = usbDevices;
+                var merged = MergeDevices(stillReady, usbDevices);
+                UpdateDeviceState(merged);
+                _statusLabel.Text = GetWaitingStatus(merged);
+                SetProgressPercent(20);
+
+                // Give Windows Forms a chance to paint the green USB state before
+                // the slower MTP folder and map checks begin in the background.
+                await Task.Yield();
             }
             catch (Exception) when (!_closing.IsCancellationRequested)
             {
@@ -382,6 +386,7 @@ internal sealed class MainForm : Form
             }
 
             _readyDevices = JsonSerializer.Deserialize<List<DeviceStatus>>(payload, _jsonOptions) ?? new();
+            SetProgressPercent(45);
 
             // A device that is on USB but whose XCTrack folder scan did not see it
             // (locked, slow MTP) stays "USB / MTP connected" instead of disappearing.
@@ -458,6 +463,17 @@ internal sealed class MainForm : Form
         _deviceStatsFailed.RemoveWhere(identity => !ready.Contains(identity));
     }
 
+    private async Task<IReadOnlyList<DeviceStatus>> DetectUsbDevicesAsync()
+    {
+        var initialDetection = Interlocked.Exchange(ref _initialUsbDetection, null);
+        if (initialDetection is not null)
+        {
+            return await initialDetection;
+        }
+
+        return await Task.Run(WindowsUsbDetector.GetConnectedAir3Devices, _closing.Token);
+    }
+
     private async Task LoadMissingStatsAsync(IReadOnlyList<DeviceStatus> devices)
     {
         if (devices.Count > 2)
@@ -465,18 +481,22 @@ internal sealed class MainForm : Form
             return;
         }
 
-        foreach (var device in devices.Where(device =>
-                     device.Ready &&
-                     !_deviceStats.ContainsKey(device.Identity) &&
-                     !_deviceStatsFailed.Contains(device.Identity)))
+        var pendingDevices = devices.Where(device =>
+                device.Ready &&
+                !_deviceStats.ContainsKey(device.Identity) &&
+                !_deviceStatsFailed.Contains(device.Identity))
+            .ToList();
+
+        for (var index = 0; index < pendingDevices.Count; index++)
         {
+            var device = pendingDevices[index];
             _statusLabel.Text = T(
                 $"Skaičiuojami {device.DisplayName} žemėlapiai...",
                 $"Counting maps on {device.DisplayName}...");
-            _progress.Style = ProgressBarStyle.Marquee;
+            SetProgressPercent(55 + (index * 40 / Math.Max(1, pendingDevices.Count)));
             try
             {
-                var result = await _engine.RunAsync(
+                var result = await Engine.RunAsync(
                     new[] { "-GuiStatsJson", "-StatsDevicePath", device.Path },
                     line => HandleEngineLine(line, includeProtocolLines: false),
                     _closing.Token,
@@ -500,11 +520,7 @@ internal sealed class MainForm : Form
                 _deviceStatsFailed.Add(device.Identity);
                 AppendLog(T("KLAIDA: ", "ERROR: ") + ex.Message, true);
             }
-            finally
-            {
-                _progress.Style = ProgressBarStyle.Blocks;
-            }
-
+            SetProgressPercent(55 + ((index + 1) * 40 / Math.Max(1, pendingDevices.Count)));
             UpdateDeviceState(devices);
         }
     }
@@ -584,7 +600,7 @@ internal sealed class MainForm : Form
 
     private async Task<PowerShellResult> ReadDeviceStatusWithRetryAsync()
     {
-        return await _engine.RunAsync(
+        return await Engine.RunAsync(
             new[] { "-GuiStatusJson" },
             line => HandleEngineLine(line, includeProtocolLines: false),
             _closing.Token,
@@ -596,9 +612,9 @@ internal sealed class MainForm : Form
         _statusLabel.Text = T(
             "Skaitomi ir lyginami abiejų įrenginių žemėlapių sąrašai...",
             "Reading and comparing map inventories on both devices...");
-        _progress.Style = ProgressBarStyle.Marquee;
+        SetProgressPercent(55);
 
-        var result = await _engine.RunAsync(
+        var result = await Engine.RunAsync(
             new[] { "-GuiCompareJson" },
             line => HandleEngineLine(line, includeProtocolLines: false),
             _closing.Token,
@@ -614,8 +630,7 @@ internal sealed class MainForm : Form
             ?? throw new InvalidOperationException(T("Gautas netinkamas palyginimo atsakymas.", "The comparison response was invalid."));
 
         UpdateComparison(_comparison);
-        _progress.Style = ProgressBarStyle.Blocks;
-        _progress.Value = 0;
+        SetProgressPercent(95);
     }
 
     private async Task SynchronizeAsync()
@@ -637,7 +652,7 @@ internal sealed class MainForm : Form
 
         try
         {
-            var result = await _engine.RunAsync(
+            var result = await Engine.RunAsync(
                 new[] { "-GuiProgress" },
                 line =>
                 {
@@ -650,7 +665,7 @@ internal sealed class MainForm : Form
                             SafeUi(() =>
                             {
                                 _progress.Maximum = Math.Max(1, info.Total);
-                                _progress.Value = Math.Clamp(info.Current - 1, 0, _progress.Maximum);
+                                _progress.Value = Math.Clamp(info.Current, 0, _progress.Maximum);
                                 _statusLabel.Text = $"{N(info.Current)}/{N(info.Total)}: {info.Path} → {info.Destination}";
                             });
                         }
@@ -715,7 +730,7 @@ internal sealed class MainForm : Form
         SetBusy(true, T("Ieškoma tinkamos atsarginės kopijos...", "Looking for a matching backup..."));
         try
         {
-            var listResult = await _engine.RunAsync(
+            var listResult = await Engine.RunAsync(
                 new[] { "-GuiListRestoresJson", "-RestoreDevicePath", device.Path },
                 line => HandleEngineLine(line, includeProtocolLines: false),
                 _closing.Token,
@@ -786,7 +801,7 @@ internal sealed class MainForm : Form
                 $"Pradėtas {device.DisplayName} atkūrimas pagal {restoreDate} kopiją.",
                 $"Started restoring {device.DisplayName} from the {restoreDate} backup."), false);
 
-            var restoreResult = await _engine.RunAsync(
+            var restoreResult = await Engine.RunAsync(
                 new[]
                 {
                     "-GuiRestore",
@@ -806,7 +821,7 @@ internal sealed class MainForm : Form
                             SafeUi(() =>
                             {
                                 _progress.Maximum = Math.Max(1, progress.Total);
-                                _progress.Value = Math.Clamp(progress.Current - 1, 0, _progress.Maximum);
+                                _progress.Value = Math.Clamp(progress.Current, 0, _progress.Maximum);
                                 _statusLabel.Text = $"{N(progress.Current)}/{N(progress.Total)}: {progress.Path}";
                             });
                         }
@@ -1155,13 +1170,27 @@ internal sealed class MainForm : Form
         _conflictsLabel.Text = string.Empty;
         _syncButton.Enabled = false;
         _syncButton.Text = T("Sinchronizuoti", "Synchronize");
-        _progress.Style = ProgressBarStyle.Blocks;
-        _progress.Value = 0;
+        if (!_busy)
+        {
+            _progress.Style = ProgressBarStyle.Continuous;
+            _progress.Minimum = 0;
+            _progress.Maximum = 100;
+            _progress.Value = 0;
+        }
         _statusLabel.Text = message;
+    }
+
+    private void SetProgressPercent(int percent)
+    {
+        _progress.Style = ProgressBarStyle.Continuous;
+        _progress.Minimum = 0;
+        _progress.Maximum = 100;
+        _progress.Value = Math.Clamp(percent, 0, 100);
     }
 
     private void SetBusy(bool busy, string status)
     {
+        var wasBusy = _busy;
         _busy = busy;
         _refreshButton.Enabled = !busy;
         _languageCombo.Enabled = !busy;
@@ -1170,9 +1199,13 @@ internal sealed class MainForm : Form
         _syncButton.Enabled = !busy && _comparison is { Transfers: > 0 };
         _statusLabel.Text = status;
         UseWaitCursor = busy;
-        if (!busy && _progress.Style == ProgressBarStyle.Marquee)
+        if (busy && !wasBusy)
         {
-            _progress.Style = ProgressBarStyle.Blocks;
+            SetProgressPercent(0);
+        }
+        else if (!busy && wasBusy)
+        {
+            _progress.Value = _progress.Maximum;
         }
     }
 

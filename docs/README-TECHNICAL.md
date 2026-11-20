@@ -17,12 +17,13 @@ Supported XCTrack layouts:
 The GUI embeds `Sync-XCTrackMaps.ps1` and extracts it to
 `%LOCALAPPDATA%\XCTrackMapSync` when needed.
 
-Device status uses two stages. A fast Windows WPD check shows a connected AIR³
-device immediately. A separate Windows Shell scan then validates the XCTrack
-`Map` directory and changes the state from **USB / MTP connected** to
-**Connected and ready**. If the Shell scan is temporarily slow, the USB status
-remains green and validation is retried without requiring the cable to be
-disconnected.
+Device status uses two stages. A native Windows Configuration Manager query
+reads only the currently present USB device IDs. On a warm application restart,
+the connected AIR³ status is shown in under two seconds. A separate Windows
+Shell scan then validates the XCTrack `Map` directory and changes the state
+from **USB / MTP connected** to **Connected and ready**. If the Shell scan is
+temporarily slow, the USB status remains green and validation is retried
+without requiring the cable to be disconnected.
 
 Both stages identify a device by its USB vendor ID, product ID, and serial
 number, so they update the same device card. Devices are ordered by that
@@ -30,6 +31,10 @@ identity: device A, device B, and the `#1` / `#2` suffixes of identical models
 stay the same between checks. The background check runs every 10 seconds, but
 the full map comparison is repeated only when the connected pair changes, after
 **Refresh**, or after a synchronization or restore.
+
+The progress bar is always determinate. Device checking advances through fixed
+USB, folder-validation, inventory, and completion stages. Synchronization and
+restore use the actual completed-file count reported by the engine.
 
 As soon as a device is ready, its card shows the number of road maps (`.map`)
 and terrain files (`.gec`), even if the second device is not connected yet.

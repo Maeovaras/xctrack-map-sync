@@ -17,11 +17,13 @@ Palaikomos XCTrack katalogų schemos:
 Grafinėje programoje įterptas `Sync-XCTrackMaps.ps1`. Prireikus jis
 automatiškai išskleidžiamas į `%LOCALAPPDATA%\XCTrackMapSync`.
 
-Įrenginio būsena nustatoma dviem etapais. Greita Windows WPD patikra iškart
-parodo prijungtą AIR³. Atskira Windows Shell patikra tada patvirtina XCTrack
-`Map` katalogą ir būseną pakeičia iš **USB / MTP prijungtas** į **Prijungtas ir
-paruoštas**. Jei Shell patikra laikinai užtrunka, USB būsena lieka žalia, o
-patikra kartojama nereikalaujant atjungti laido.
+Įrenginio būsena nustatoma dviem etapais. Tiesioginė Windows Configuration
+Manager užklausa nuskaito tik šiuo metu prijungtų USB įrenginių ID. Pakartotinai
+paleidus programą prijungtas AIR³ parodomas per mažiau nei dvi sekundes. Atskira
+Windows Shell patikra tada patvirtina XCTrack `Map` katalogą ir būseną pakeičia
+iš **USB / MTP prijungtas** į **Prijungtas ir paruoštas**. Jei Shell patikra
+laikinai užtrunka, USB būsena lieka žalia, o patikra kartojama nereikalaujant
+atjungti laido.
 
 Abu etapai įrenginį atpažįsta pagal USB gamintojo ID, produkto ID ir serijos
 numerį, todėl atnaujina tą pačią įrenginio kortelę. Įrenginiai rikiuojami pagal
@@ -29,6 +31,10 @@ numerį, todėl atnaujina tą pačią įrenginio kortelę. Įrenginiai rikiuojam
 priesagos tarp patikrų nesikeičia. Foninė patikra vyksta kas 10 sekundžių, bet
 pilnas žemėlapių palyginimas kartojamas tik pasikeitus prijungtų įrenginių
 porai, paspaudus **Atnaujinti** arba po sinchronizavimo ar atkūrimo.
+
+Progreso juosta visada rodo apibrėžtą eigą. Įrenginių tikrinimas pereina USB,
+katalogų patvirtinimo, failų sąrašo ir užbaigimo etapus. Sinchronizuojant ir
+atkuriant naudojamas variklio pateiktas tikras atliktų failų skaičius.
 
 Kai tik įrenginys paruoštas, jo kortelėje rodomas kelių žemėlapių (`.map`) ir
 reljefo failų (`.gec`) skaičius, net jei antras įrenginys dar neprijungtas.
