@@ -551,30 +551,6 @@ function Get-DeviceInventory {
     return $inventory
 }
 
-function Get-InventoryStats {
-    param(
-        [Parameter(Mandatory = $true)] $Device,
-        [Parameter(Mandatory = $true)] [hashtable] $Inventory
-    )
-
-    $roadMaps = @($Inventory.Values | Where-Object { $_.RelativePath -like 'RoadMap\*' })
-    $terrain = @($Inventory.Values | Where-Object { $_.RelativePath -like 'gec\*' })
-    $roadMapBytes = ($roadMaps | Measure-Object -Property Size -Sum).Sum
-    $gecBytes = ($terrain | Measure-Object -Property Size -Sum).Sum
-    if ($null -eq $roadMapBytes) { $roadMapBytes = 0 }
-    if ($null -eq $gecBytes) { $gecBytes = 0 }
-
-    return [pscustomobject]@{
-        Name         = $Device.DisplayName
-        Layout       = $Device.Layout
-        FileCount    = $Inventory.Count
-        RoadMapCount = $roadMaps.Count
-        GecCount     = $terrain.Count
-        RoadMapBytes = [int64] $roadMapBytes
-        GecBytes     = [int64] $gecBytes
-    }
-}
-
 function Get-MtpFileCountRecursive {
     param(
         [Parameter(Mandatory = $true)] $FolderItem,

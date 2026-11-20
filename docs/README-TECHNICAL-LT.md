@@ -42,6 +42,9 @@ porai, paspaudus **Atnaujinti** arba po sinchronizavimo ar atkūrimo.
 Progreso juosta visada rodo apibrėžtą eigą. Įrenginių tikrinimas pereina USB,
 katalogų patvirtinimo, failų sąrašo ir užbaigimo etapus. Sinchronizuojant ir
 atkuriant naudojamas variklio pateiktas tikras atliktų failų skaičius.
+Foninė patikra, vykstanti kas 10 sekundžių, progreso juostos nejudina ir laukimo
+žymeklio nerodo, nebent pradeda tikrą darbą: skaičiuoja naujai prijungto
+įrenginio žemėlapius arba lygina du įrenginius.
 
 Kai tik įrenginys paruoštas, jo kortelėje rodomas kelių žemėlapių (`.map`) ir
 reljefo failų (`.gec`) skaičius, net jei antras įrenginys dar neprijungtas.

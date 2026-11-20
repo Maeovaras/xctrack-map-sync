@@ -41,6 +41,9 @@ the full map comparison is repeated only when the connected pair changes, after
 The progress bar is always determinate. Device checking advances through fixed
 USB, folder-validation, inventory, and completion stages. Synchronization and
 restore use the actual completed-file count reported by the engine.
+The background check that runs every 10 seconds does not move the progress bar
+or show a wait cursor unless it starts real work, such as counting maps on a
+newly connected device or comparing two devices.
 
 As soon as a device is ready, its card shows the number of road maps (`.map`)
 and terrain files (`.gec`), even if the second device is not connected yet.

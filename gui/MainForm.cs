@@ -47,6 +47,11 @@ internal sealed class MainForm : Form
     private Task<IReadOnlyList<DeviceStatus>>? _initialUsbDetection;
     private string _comparedDevicesKey = string.Empty;
 
+    // A background tick (every 10 s) that only re-checks known devices must not
+    // move the progress bar or show the wait cursor. It becomes visible only when
+    // real work starts: map counting or a comparison.
+    private bool _quietRefresh;
+
     // Per-device map statistics, keyed by USB identity. Counting ~5 000 terrain
     // files over MTP takes 20-40 s, so it runs once per connection, not per tick.
     private readonly Dictionary<string, DeviceComparison> _deviceStats = new(StringComparer.OrdinalIgnoreCase);
@@ -339,6 +344,7 @@ internal sealed class MainForm : Form
             return;
         }
 
+        _quietRefresh = !forceCompare;
         SetBusy(true, T("Tikrinami prijungti įrenginiai...", "Checking connected devices..."));
         if (forceCompare)
         {
@@ -449,6 +455,16 @@ internal sealed class MainForm : Form
         finally
         {
             SetBusy(false, _statusLabel.Text);
+            _quietRefresh = false;
+        }
+    }
+
+    private void ShowWorkProgress()
+    {
+        if (_quietRefresh)
+        {
+            _quietRefresh = false;
+            UseWaitCursor = true;
         }
     }
 
@@ -486,6 +502,10 @@ internal sealed class MainForm : Form
                 !_deviceStats.ContainsKey(device.Identity) &&
                 !_deviceStatsFailed.Contains(device.Identity))
             .ToList();
+        if (pendingDevices.Count > 0)
+        {
+            ShowWorkProgress();
+        }
 
         for (var index = 0; index < pendingDevices.Count; index++)
         {
@@ -612,6 +632,7 @@ internal sealed class MainForm : Form
         _statusLabel.Text = T(
             "Skaitomi ir lyginami abiejų įrenginių žemėlapių sąrašai...",
             "Reading and comparing map inventories on both devices...");
+        ShowWorkProgress();
         SetProgressPercent(55);
 
         var result = await Engine.RunAsync(
@@ -665,7 +686,8 @@ internal sealed class MainForm : Form
                             SafeUi(() =>
                             {
                                 _progress.Maximum = Math.Max(1, info.Total);
-                                _progress.Value = Math.Clamp(info.Current, 0, _progress.Maximum);
+                                // Sent when a file starts, so Current - 1 files are done.
+                                _progress.Value = Math.Clamp(info.Current - 1, 0, _progress.Maximum);
                                 _statusLabel.Text = $"{N(info.Current)}/{N(info.Total)}: {info.Path} → {info.Destination}";
                             });
                         }
@@ -821,7 +843,8 @@ internal sealed class MainForm : Form
                             SafeUi(() =>
                             {
                                 _progress.Maximum = Math.Max(1, progress.Total);
-                                _progress.Value = Math.Clamp(progress.Current, 0, _progress.Maximum);
+                                // Sent when an operation starts, so Current - 1 are done.
+                                _progress.Value = Math.Clamp(progress.Current - 1, 0, _progress.Maximum);
                                 _statusLabel.Text = $"{N(progress.Current)}/{N(progress.Total)}: {progress.Path}";
                             });
                         }
@@ -1182,6 +1205,11 @@ internal sealed class MainForm : Form
 
     private void SetProgressPercent(int percent)
     {
+        if (_quietRefresh)
+        {
+            return;
+        }
+
         _progress.Style = ProgressBarStyle.Continuous;
         _progress.Minimum = 0;
         _progress.Maximum = 100;
@@ -1198,12 +1226,12 @@ internal sealed class MainForm : Form
         _restoreBButton.Enabled = !busy && _lastDevices.Count > 1 && _lastDevices[1].Ready;
         _syncButton.Enabled = !busy && _comparison is { Transfers: > 0 };
         _statusLabel.Text = status;
-        UseWaitCursor = busy;
+        UseWaitCursor = busy && !_quietRefresh;
         if (busy && !wasBusy)
         {
             SetProgressPercent(0);
         }
-        else if (!busy && wasBusy)
+        else if (!busy && wasBusy && !_quietRefresh)
         {
             _progress.Value = _progress.Maximum;
         }
