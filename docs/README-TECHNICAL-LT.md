@@ -30,6 +30,12 @@ priesagos tarp patikrų nesikeičia. Foninė patikra vyksta kas 10 sekundžių, 
 pilnas žemėlapių palyginimas kartojamas tik pasikeitus prijungtų įrenginių
 porai, paspaudus **Atnaujinti** arba po sinchronizavimo ar atkūrimo.
 
+Kai tik įrenginys paruoštas, jo kortelėje rodomas kelių žemėlapių (`.map`) ir
+reljefo failų (`.gec`) skaičius bei bendras dydis, net jei antras įrenginys dar
+neprijungtas. Tūkstančių reljefo failų suskaičiavimas per MTP trunka apie
+20–40 sekundžių, todėl jis atliekamas vieną kartą prijungus įrenginį ir iš
+naujo paspaudus **Atnaujinti**, po sinchronizavimo ar atkūrimo.
+
 ## Sinchronizavimo taisyklės
 
 Pagal nutylėjimą sinchronizuojama:

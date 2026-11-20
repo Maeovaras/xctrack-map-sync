@@ -62,6 +62,12 @@ param(
     [switch] $GuiCompareJson,
 
     [Parameter()]
+    [switch] $GuiStatsJson,
+
+    [Parameter()]
+    [string] $StatsDevicePath,
+
+    [Parameter()]
     [switch] $GuiProgress,
 
     [Parameter()]
@@ -543,6 +549,30 @@ function Get-DeviceInventory {
         Add-MtpInventoryRecursive -FolderItem $folder -RelativeFolder $folderName -Inventory $inventory
     }
     return $inventory
+}
+
+function Get-InventoryStats {
+    param(
+        [Parameter(Mandatory = $true)] $Device,
+        [Parameter(Mandatory = $true)] [hashtable] $Inventory
+    )
+
+    $roadMaps = @($Inventory.Values | Where-Object { $_.RelativePath -like 'RoadMap\*' })
+    $terrain = @($Inventory.Values | Where-Object { $_.RelativePath -like 'gec\*' })
+    $roadMapBytes = ($roadMaps | Measure-Object -Property Size -Sum).Sum
+    $gecBytes = ($terrain | Measure-Object -Property Size -Sum).Sum
+    if ($null -eq $roadMapBytes) { $roadMapBytes = 0 }
+    if ($null -eq $gecBytes) { $gecBytes = 0 }
+
+    return [pscustomobject]@{
+        Name         = $Device.DisplayName
+        Layout       = $Device.Layout
+        FileCount    = $Inventory.Count
+        RoadMapCount = $roadMaps.Count
+        GecCount     = $terrain.Count
+        RoadMapBytes = [int64] $roadMapBytes
+        GecBytes     = [int64] $gecBytes
+    }
 }
 
 function Get-SyncPlan {
@@ -1358,6 +1388,20 @@ try {
             }
         })
         Write-Output ('XCT_JSON:' + (ConvertTo-Json -InputObject $statusPayload -Compress))
+        exit 0
+    }
+
+    if ($GuiStatsJson) {
+        if ([string]::IsNullOrWhiteSpace($StatsDevicePath)) {
+            throw 'StatsDevicePath is required with GuiStatsJson.'
+        }
+        $statsDevice = @($devices | Where-Object { $_.Path -eq $StatsDevicePath }) | Select-Object -First 1
+        if ($null -eq $statsDevice) {
+            throw 'The selected device is not connected or its XCTrack Map folder is not available.'
+        }
+        $statsInventory = Get-DeviceInventory -Device $statsDevice -SelectedFolders $Folders
+        $statsPayload = Get-InventoryStats -Device $statsDevice -Inventory $statsInventory
+        Write-Output ('XCT_JSON:' + ($statsPayload | ConvertTo-Json -Compress))
         exit 0
     }
 

@@ -45,6 +45,11 @@ internal sealed class MainForm : Form
     private IReadOnlyList<DeviceStatus> _usbDevices = Array.Empty<DeviceStatus>();
     private IReadOnlyList<DeviceStatus> _readyDevices = Array.Empty<DeviceStatus>();
     private string _comparedDevicesKey = string.Empty;
+
+    // Per-device map statistics, keyed by USB identity. Counting ~5 000 terrain
+    // files over MTP takes 20-40 s, so it runs once per connection, not per tick.
+    private readonly Dictionary<string, DeviceComparison> _deviceStats = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _deviceStatsFailed = new(StringComparer.OrdinalIgnoreCase);
     private string _lastLoggedDeviceStateKey = string.Empty;
     private UiLanguage _language;
 
@@ -323,6 +328,13 @@ internal sealed class MainForm : Form
         }
 
         SetBusy(true, T("Tikrinami prijungti įrenginiai...", "Checking connected devices..."));
+        if (forceCompare)
+        {
+            // Refresh, synchronization and restore change the files: count again.
+            _deviceStats.Clear();
+            _deviceStatsFailed.Clear();
+        }
+
         try
         {
             try
@@ -374,6 +386,7 @@ internal sealed class MainForm : Form
             // A device that is on USB but whose XCTrack folder scan did not see it
             // (locked, slow MTP) stays "USB / MTP connected" instead of disappearing.
             var devices = MergeDevices(_readyDevices, _usbDevices);
+            ForgetDisconnectedStats(devices);
             UpdateDeviceState(devices);
 
             if (devices.Count == 2 && devices.All(device => device.Ready))
@@ -384,6 +397,10 @@ internal sealed class MainForm : Form
                 {
                     await CompareAsync();
                     _comparedDevicesKey = GetDevicesKey(devices);
+
+                    // The comparison already read both inventories; reuse its counts.
+                    _deviceStats[devices[0].Identity] = _comparison!.DeviceA;
+                    _deviceStats[devices[1].Identity] = _comparison.DeviceB;
                 }
                 else
                 {
@@ -399,6 +416,8 @@ internal sealed class MainForm : Form
             else
             {
                 ResetComparison(GetWaitingStatus(devices));
+                await LoadMissingStatsAsync(devices);
+                _statusLabel.Text = GetWaitingStatus(devices);
             }
         }
         catch (OperationCanceledException) when (_closing.IsCancellationRequested)
@@ -425,6 +444,97 @@ internal sealed class MainForm : Form
         finally
         {
             SetBusy(false, _statusLabel.Text);
+        }
+    }
+
+    private void ForgetDisconnectedStats(IReadOnlyList<DeviceStatus> devices)
+    {
+        var ready = devices.Where(device => device.Ready).Select(device => device.Identity)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var identity in _deviceStats.Keys.Where(identity => !ready.Contains(identity)).ToList())
+        {
+            _deviceStats.Remove(identity);
+        }
+        _deviceStatsFailed.RemoveWhere(identity => !ready.Contains(identity));
+    }
+
+    private async Task LoadMissingStatsAsync(IReadOnlyList<DeviceStatus> devices)
+    {
+        if (devices.Count > 2)
+        {
+            return;
+        }
+
+        foreach (var device in devices.Where(device =>
+                     device.Ready &&
+                     !_deviceStats.ContainsKey(device.Identity) &&
+                     !_deviceStatsFailed.Contains(device.Identity)))
+        {
+            _statusLabel.Text = T(
+                $"Skaičiuojami {device.DisplayName} žemėlapiai...",
+                $"Counting maps on {device.DisplayName}...");
+            _progress.Style = ProgressBarStyle.Marquee;
+            try
+            {
+                var result = await _engine.RunAsync(
+                    new[] { "-GuiStatsJson", "-StatsDevicePath", device.Path },
+                    line => HandleEngineLine(line, includeProtocolLines: false),
+                    _closing.Token,
+                    TimeSpan.FromMinutes(10));
+                var payload = result.FindPayload(JsonPrefix);
+                if (result.ExitCode != 0 || string.IsNullOrWhiteSpace(payload))
+                {
+                    throw new InvalidOperationException(BuildError(result, T(
+                        "Nepavyko suskaičiuoti žemėlapių.",
+                        "Could not count the maps.")));
+                }
+
+                _deviceStats[device.Identity] = JsonSerializer.Deserialize<DeviceComparison>(payload, _jsonOptions)
+                    ?? throw new InvalidOperationException(T(
+                        "Gautas netinkamas statistikos atsakymas.",
+                        "The statistics response was invalid."));
+            }
+            catch (Exception ex) when (!_closing.IsCancellationRequested)
+            {
+                // Do not retry every 10 s; Refresh clears this and tries again.
+                _deviceStatsFailed.Add(device.Identity);
+                AppendLog(T("KLAIDA: ", "ERROR: ") + ex.Message, true);
+            }
+            finally
+            {
+                _progress.Style = ProgressBarStyle.Blocks;
+            }
+
+            UpdateDeviceState(devices);
+        }
+    }
+
+    private (string RoadMaps, string Terrain) FormatStats(DeviceComparison stats) => (
+        T(
+            $"Kelių: {N(stats.RoadMapCount)} failai, {FormatBytes(stats.RoadMapBytes)}",
+            $"Road maps: {N(stats.RoadMapCount)} files, {FormatBytes(stats.RoadMapBytes)}"),
+        T(
+            $"Reljefo: {N(stats.GecCount)} failai, {FormatBytes(stats.GecBytes)}",
+            $"Terrain: {N(stats.GecCount)} files, {FormatBytes(stats.GecBytes)}"));
+
+    private void ShowReadyDevice(DeviceCard card, DeviceStatus device)
+    {
+        if (_deviceStats.TryGetValue(device.Identity, out var stats))
+        {
+            var (roadMaps, terrain) = FormatStats(stats);
+            card.SetConnected(device.DisplayName, device.Layout, roadMaps, secondaryDetails: terrain);
+        }
+        else if (_deviceStatsFailed.Contains(device.Identity))
+        {
+            card.SetConnected(device.DisplayName, device.Layout, T(
+                "Žemėlapių suskaičiuoti nepavyko – spauskite Atnaujinti.",
+                "Could not count the maps. Click Refresh."));
+        }
+        else
+        {
+            card.SetConnected(device.DisplayName, device.Layout, T(
+                "Skaičiuojami žemėlapiai...",
+                "Counting maps..."));
         }
     }
 
@@ -759,7 +869,7 @@ internal sealed class MainForm : Form
         {
             if (devices[0].Ready)
             {
-                _deviceA.SetConnected(devices[0].DisplayName, devices[0].Layout, devices[0].Layout);
+                ShowReadyDevice(_deviceA, devices[0]);
             }
             else
             {
@@ -782,7 +892,7 @@ internal sealed class MainForm : Form
         {
             if (devices[1].Ready)
             {
-                _deviceB.SetConnected(devices[1].DisplayName, devices[1].Layout, devices[1].Layout);
+                ShowReadyDevice(_deviceB, devices[1]);
             }
             else
             {
@@ -839,30 +949,24 @@ internal sealed class MainForm : Form
 
     private void UpdateComparison(ComparisonResult comparison)
     {
+        var statsA = FormatStats(comparison.DeviceA);
         _deviceA.SetConnected(
             comparison.DeviceA.Name,
             comparison.DeviceA.Layout,
-            T(
-                $"Kelių: {N(comparison.DeviceA.RoadMapCount)} failai, {FormatBytes(comparison.DeviceA.RoadMapBytes)}",
-                $"Road maps: {N(comparison.DeviceA.RoadMapCount)} files, {FormatBytes(comparison.DeviceA.RoadMapBytes)}"),
+            statsA.RoadMaps,
             T(
                 $"Gaus: {N(comparison.DeviceA.MissingIncoming + comparison.DeviceA.NewerIncoming)} failus, {FormatBytes(comparison.DeviceA.BytesIncoming)}",
                 $"Will receive: {N(comparison.DeviceA.MissingIncoming + comparison.DeviceA.NewerIncoming)} files, {FormatBytes(comparison.DeviceA.BytesIncoming)}"),
-            T(
-                $"Reljefo: {N(comparison.DeviceA.GecCount)} failai, {FormatBytes(comparison.DeviceA.GecBytes)}",
-                $"Terrain: {N(comparison.DeviceA.GecCount)} files, {FormatBytes(comparison.DeviceA.GecBytes)}"));
+            statsA.Terrain);
+        var statsB = FormatStats(comparison.DeviceB);
         _deviceB.SetConnected(
             comparison.DeviceB.Name,
             comparison.DeviceB.Layout,
-            T(
-                $"Kelių: {N(comparison.DeviceB.RoadMapCount)} failai, {FormatBytes(comparison.DeviceB.RoadMapBytes)}",
-                $"Road maps: {N(comparison.DeviceB.RoadMapCount)} files, {FormatBytes(comparison.DeviceB.RoadMapBytes)}"),
+            statsB.RoadMaps,
             T(
                 $"Gaus: {N(comparison.DeviceB.MissingIncoming + comparison.DeviceB.NewerIncoming)} failus, {FormatBytes(comparison.DeviceB.BytesIncoming)}",
                 $"Will receive: {N(comparison.DeviceB.MissingIncoming + comparison.DeviceB.NewerIncoming)} files, {FormatBytes(comparison.DeviceB.BytesIncoming)}"),
-            T(
-                $"Reljefo: {N(comparison.DeviceB.GecCount)} failai, {FormatBytes(comparison.DeviceB.GecBytes)}",
-                $"Terrain: {N(comparison.DeviceB.GecCount)} files, {FormatBytes(comparison.DeviceB.GecBytes)}"));
+            statsB.Terrain);
 
         _summaryTitle.Text = comparison.Transfers == 0
             ? T("Abu įrenginiai jau sinchronizuoti", "Both devices are already synchronized")
