@@ -31,10 +31,11 @@ pilnas žemėlapių palyginimas kartojamas tik pasikeitus prijungtų įrenginių
 porai, paspaudus **Atnaujinti** arba po sinchronizavimo ar atkūrimo.
 
 Kai tik įrenginys paruoštas, jo kortelėje rodomas kelių žemėlapių (`.map`) ir
-reljefo failų (`.gec`) skaičius bei bendras dydis, net jei antras įrenginys dar
-neprijungtas. Tūkstančių reljefo failų suskaičiavimas per MTP trunka apie
-20–40 sekundžių, todėl jis atliekamas vieną kartą prijungus įrenginį ir iš
-naujo paspaudus **Atnaujinti**, po sinchronizavimo ar atkūrimo.
+reljefo failų (`.gec`) skaičius, net jei antras įrenginys dar neprijungtas.
+Skaitiklis nuskaito tik vardus ir plėtinius, o ne kiekvieno failo dydį bei datą.
+Jis paleidžiamas vieną kartą prijungus įrenginį ir iš naujo paspaudus
+**Atnaujinti**, po sinchronizavimo ar atkūrimo. Pilnas dviejų įrenginių
+palyginimas papildomai parodo duomenų dydžius.
 
 ## Sinchronizavimo taisyklės
 

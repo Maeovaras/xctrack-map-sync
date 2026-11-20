@@ -31,11 +31,11 @@ stay the same between checks. The background check runs every 10 seconds, but
 the full map comparison is repeated only when the connected pair changes, after
 **Refresh**, or after a synchronization or restore.
 
-As soon as a device is ready, its card shows the number and total size of road
-maps (`.map`) and terrain files (`.gec`), even if the second device is not
-connected yet. Counting thousands of terrain files over MTP takes about
-20-40 seconds, so it runs once per connection and again after **Refresh**,
-synchronization, or restore.
+As soon as a device is ready, its card shows the number of road maps (`.map`)
+and terrain files (`.gec`), even if the second device is not connected yet.
+This count reads only names and extensions, not every file's size and date.
+It runs once per connection and again after **Refresh**, synchronization, or
+restore. The full two-device comparison also shows data sizes.
 
 ## Synchronization rules
 

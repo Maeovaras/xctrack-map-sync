@@ -575,6 +575,45 @@ function Get-InventoryStats {
     }
 }
 
+function Get-MtpFileCountRecursive {
+    param(
+        [Parameter(Mandatory = $true)] $FolderItem,
+        [Parameter(Mandatory = $true)] [string] $Extension
+    )
+
+    $count = 0
+    foreach ($item in @($FolderItem.GetFolder.Items())) {
+        if ($item.IsFolder) {
+            $count += Get-MtpFileCountRecursive -FolderItem $item -Extension $Extension
+        }
+        elseif ([IO.Path]::GetExtension([string] $item.Name) -ieq $Extension) {
+            $count++
+        }
+    }
+    return $count
+}
+
+function Get-DeviceMapCounts {
+    param([Parameter(Mandatory = $true)] $Device)
+
+    $roadMapFolder = Get-ChildMtpItem -ParentItem $Device.MapItem -Name 'RoadMap' -FolderOnly
+    $gecFolder = Get-ChildMtpItem -ParentItem $Device.MapItem -Name 'gec' -FolderOnly
+    return [pscustomobject]@{
+        RoadMapCount = if ($null -eq $roadMapFolder) {
+            0
+        }
+        else {
+            Get-MtpFileCountRecursive -FolderItem $roadMapFolder -Extension '.map'
+        }
+        GecCount = if ($null -eq $gecFolder) {
+            0
+        }
+        else {
+            Get-MtpFileCountRecursive -FolderItem $gecFolder -Extension '.gec'
+        }
+    }
+}
+
 function Get-SyncPlan {
     param(
         [Parameter(Mandatory = $true)] $FirstDevice,
@@ -1399,8 +1438,17 @@ try {
         if ($null -eq $statsDevice) {
             throw 'The selected device is not connected or its XCTrack Map folder is not available.'
         }
-        $statsInventory = Get-DeviceInventory -Device $statsDevice -SelectedFolders $Folders
-        $statsPayload = Get-InventoryStats -Device $statsDevice -Inventory $statsInventory
+        $mapCounts = Get-DeviceMapCounts -Device $statsDevice
+        $statsPayload = [pscustomobject]@{
+            Name         = $statsDevice.DisplayName
+            Layout       = $statsDevice.Layout
+            FileCount    = [int] ($mapCounts.RoadMapCount + $mapCounts.GecCount)
+            RoadMapCount = [int] $mapCounts.RoadMapCount
+            GecCount     = [int] $mapCounts.GecCount
+            RoadMapBytes = [int64] 0
+            GecBytes     = [int64] 0
+            CountsOnly   = $true
+        }
         Write-Output ('XCT_JSON:' + ($statsPayload | ConvertTo-Json -Compress))
         exit 0
     }

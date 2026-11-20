@@ -509,13 +509,27 @@ internal sealed class MainForm : Form
         }
     }
 
-    private (string RoadMaps, string Terrain) FormatStats(DeviceComparison stats) => (
-        T(
-            $"Kelių: {N(stats.RoadMapCount)} failai, {FormatBytes(stats.RoadMapBytes)}",
-            $"Road maps: {N(stats.RoadMapCount)} files, {FormatBytes(stats.RoadMapBytes)}"),
-        T(
-            $"Reljefo: {N(stats.GecCount)} failai, {FormatBytes(stats.GecBytes)}",
-            $"Terrain: {N(stats.GecCount)} files, {FormatBytes(stats.GecBytes)}"));
+    private (string RoadMaps, string Terrain) FormatStats(DeviceComparison stats)
+    {
+        if (stats.CountsOnly)
+        {
+            return (
+                T(
+                    $"Kelių žemėlapiai: {N(stats.RoadMapCount)}",
+                    $"Road maps: {N(stats.RoadMapCount)}"),
+                T(
+                    $"Reljefo žemėlapiai: {N(stats.GecCount)}",
+                    $"Terrain: {N(stats.GecCount)}"));
+        }
+
+        return (
+            T(
+                $"Kelių: {N(stats.RoadMapCount)} failai, {FormatBytes(stats.RoadMapBytes)}",
+                $"Road maps: {N(stats.RoadMapCount)} files, {FormatBytes(stats.RoadMapBytes)}"),
+            T(
+                $"Reljefo: {N(stats.GecCount)} failai, {FormatBytes(stats.GecBytes)}",
+                $"Terrain: {N(stats.GecCount)} files, {FormatBytes(stats.GecBytes)}"));
+    }
 
     private void ShowReadyDevice(DeviceCard card, DeviceStatus device)
     {
