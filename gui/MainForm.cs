@@ -5,6 +5,9 @@ namespace XCTrackMapSync;
 
 internal sealed class MainForm : Form
 {
+    private const int WmDeviceChange = 0x0219;
+    private const int DbtDeviceArrival = 0x8000;
+    private const int DbtDeviceRemoveComplete = 0x8004;
     private const string JsonPrefix = "XCT_JSON:";
     private const string ProgressPrefix = "XCT_PROGRESS:";
     private const string DonePrefix = "XCT_DONE:";
@@ -29,7 +32,8 @@ internal sealed class MainForm : Form
     private readonly Button _syncButton = new();
     private readonly Button _restoreAButton = new();
     private readonly Button _restoreBButton = new();
-    private readonly ProgressBar _progress = new();
+    private readonly ProgressBar _progressA = new();
+    private readonly ProgressBar _progressB = new();
     private readonly RichTextBox _log = new();
     private readonly System.Windows.Forms.Timer _timer = new();
     private readonly CancellationTokenSource _closing = new();
@@ -47,9 +51,8 @@ internal sealed class MainForm : Form
     private Task<IReadOnlyList<DeviceStatus>>? _initialUsbDetection;
     private string _comparedDevicesKey = string.Empty;
 
-    // A background tick (every 10 s) that only re-checks known devices must not
-    // move the progress bar or show the wait cursor. It becomes visible only when
-    // real work starts: map counting or a comparison.
+    // A USB arrival/removal refresh must not move the progress bars or show the
+    // wait cursor unless it starts real work: map counting or a comparison.
     private bool _quietRefresh;
 
     // Per-device map statistics, keyed by USB identity. Counting ~5 000 terrain
@@ -85,9 +88,12 @@ internal sealed class MainForm : Form
         BuildInterface();
         ApplyLanguage();
 
-        _timer.Interval = 10_000;
+        // One-shot debounce for real Windows USB arrival/removal messages.
+        // There is no periodic full refresh: completed progress stays at 100%.
+        _timer.Interval = 1_000;
         _timer.Tick += async (_, _) =>
         {
+            _timer.Stop();
             if (!_busy)
             {
                 await RefreshAndCompareAsync(showErrors: false);
@@ -101,7 +107,6 @@ internal sealed class MainForm : Form
                 ApplyDemoState(_demoMode);
                 return;
             }
-            _timer.Start();
             await RefreshAndCompareAsync(showErrors: true, forceCompare: true);
         };
         FormClosing += (_, _) => _closing.Cancel();
@@ -121,7 +126,7 @@ internal sealed class MainForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 228));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 170));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 76));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 23));
 
@@ -217,10 +222,31 @@ internal sealed class MainForm : Form
         actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
         actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
         actions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 215));
-        _progress.Dock = DockStyle.Fill;
-        _progress.Height = 10;
-        _progress.Anchor = AnchorStyles.Left | AnchorStyles.Right;
-        _progress.Margin = new Padding(0, 23, 20, 23);
+        var progressPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 2,
+            Margin = new Padding(0, 0, 20, 0),
+            Padding = Padding.Empty
+        };
+        progressPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        progressPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        progressPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+        progressPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        var progressALabel = BuildProgressLabel("A");
+        var progressBLabel = BuildProgressLabel("B");
+        ConfigureProgressBar(_progressA);
+        ConfigureProgressBar(_progressB);
+        progressALabel.Margin = new Padding(0, 0, 8, 0);
+        progressBLabel.Margin = new Padding(8, 0, 0, 0);
+        _progressA.Margin = new Padding(0, 6, 8, 6);
+        _progressB.Margin = new Padding(8, 6, 0, 6);
+        progressPanel.Controls.Add(progressALabel, 0, 0);
+        progressPanel.Controls.Add(progressBLabel, 1, 0);
+        progressPanel.Controls.Add(_progressA, 0, 1);
+        progressPanel.Controls.Add(_progressB, 1, 1);
 
         _syncButton.Enabled = false;
         _syncButton.Size = new Size(210, 42);
@@ -243,7 +269,7 @@ internal sealed class MainForm : Form
         StyleSecondaryButton(_restoreBButton);
         _restoreBButton.Click += async (_, _) => await RestoreDeviceAsync(1);
 
-        actions.Controls.Add(_progress, 0, 0);
+        actions.Controls.Add(progressPanel, 0, 0);
         actions.Controls.Add(_restoreAButton, 1, 0);
         actions.Controls.Add(_restoreBButton, 2, 0);
         actions.Controls.Add(_syncButton, 3, 0);
@@ -278,6 +304,26 @@ internal sealed class MainForm : Form
         root.Controls.Add(logPanel, 0, 5);
         root.Controls.Add(_footerLabel, 0, 6);
         Controls.Add(root);
+    }
+
+    private static Label BuildProgressLabel(string text) => new()
+    {
+        Text = text,
+        Dock = DockStyle.Fill,
+        TextAlign = ContentAlignment.MiddleLeft,
+        ForeColor = Color.FromArgb(100, 110, 125),
+        Font = new Font("Segoe UI Semibold", 8.5f),
+        Margin = Padding.Empty
+    };
+
+    private static void ConfigureProgressBar(ProgressBar progressBar)
+    {
+        progressBar.Dock = DockStyle.Fill;
+        progressBar.Style = ProgressBarStyle.Continuous;
+        progressBar.Minimum = 0;
+        progressBar.Maximum = 100;
+        progressBar.Value = 0;
+        progressBar.Margin = new Padding(0, 4, 0, 4);
     }
 
     private Panel BuildSummaryPanel()
@@ -510,10 +556,17 @@ internal sealed class MainForm : Form
         for (var index = 0; index < pendingDevices.Count; index++)
         {
             var device = pendingDevices[index];
+            var deviceIndex = devices
+                .Select((candidate, candidateIndex) => (candidate, candidateIndex))
+                .First(pair => string.Equals(
+                    pair.candidate.Identity,
+                    device.Identity,
+                    StringComparison.OrdinalIgnoreCase))
+                .candidateIndex;
             _statusLabel.Text = T(
                 $"Skaičiuojami {device.DisplayName} žemėlapiai...",
                 $"Counting maps on {device.DisplayName}...");
-            SetProgressPercent(55 + (index * 40 / Math.Max(1, pendingDevices.Count)));
+            SetProgressPercent(55, deviceIndex);
             try
             {
                 var result = await Engine.RunAsync(
@@ -536,11 +589,11 @@ internal sealed class MainForm : Form
             }
             catch (Exception ex) when (!_closing.IsCancellationRequested)
             {
-                // Do not retry every 10 s; Refresh clears this and tries again.
+                // Do not retry automatically; Refresh clears this and tries again.
                 _deviceStatsFailed.Add(device.Identity);
                 AppendLog(T("KLAIDA: ", "ERROR: ") + ex.Message, true);
             }
-            SetProgressPercent(55 + ((index + 1) * 40 / Math.Max(1, pendingDevices.Count)));
+            SetProgressPercent(95, deviceIndex);
             UpdateDeviceState(devices);
         }
     }
@@ -663,10 +716,12 @@ internal sealed class MainForm : Form
 
         SetBusy(true, T("Pradedamas sinchronizavimas...", "Starting synchronization..."));
         _timer.Stop();
-        _progress.Style = ProgressBarStyle.Continuous;
-        _progress.Minimum = 0;
-        _progress.Maximum = Math.Max(1, _comparison.Transfers);
-        _progress.Value = 0;
+        var incomingA = _comparison.DeviceA.MissingIncoming + _comparison.DeviceA.NewerIncoming;
+        var incomingB = _comparison.DeviceB.MissingIncoming + _comparison.DeviceB.NewerIncoming;
+        SetProgressRange(_progressA, incomingA, incomingA == 0 ? 1 : 0);
+        SetProgressRange(_progressB, incomingB, incomingB == 0 ? 1 : 0);
+        var completedA = 0;
+        var completedB = 0;
         AppendLog(T(
             $"Sinchronizuojama {N(_comparison.Transfers)} failų ({FormatBytes(_comparison.TotalBytes)}).",
             $"Synchronizing {N(_comparison.Transfers)} files ({FormatBytes(_comparison.TotalBytes)})."), false);
@@ -685,9 +740,22 @@ internal sealed class MainForm : Form
                         {
                             SafeUi(() =>
                             {
-                                _progress.Maximum = Math.Max(1, info.Total);
-                                // Sent when a file starts, so Current - 1 files are done.
-                                _progress.Value = Math.Clamp(info.Current - 1, 0, _progress.Maximum);
+                                if (string.Equals(
+                                        info.Destination,
+                                        _comparison.DeviceA.Name,
+                                        StringComparison.OrdinalIgnoreCase))
+                                {
+                                    _progressA.Value = Math.Clamp(completedA, 0, _progressA.Maximum);
+                                    completedA++;
+                                }
+                                else if (string.Equals(
+                                             info.Destination,
+                                             _comparison.DeviceB.Name,
+                                             StringComparison.OrdinalIgnoreCase))
+                                {
+                                    _progressB.Value = Math.Clamp(completedB, 0, _progressB.Maximum);
+                                    completedB++;
+                                }
                                 _statusLabel.Text = $"{N(info.Current)}/{N(info.Total)}: {info.Path} → {info.Destination}";
                             });
                         }
@@ -705,7 +773,8 @@ internal sealed class MainForm : Form
                 ? null
                 : JsonSerializer.Deserialize<DoneInfo>(donePayload, _jsonOptions);
 
-            _progress.Value = _progress.Maximum;
+            _progressA.Value = _progressA.Maximum;
+            _progressB.Value = _progressB.Maximum;
             AppendLog(T("Sinchronizavimas baigtas sėkmingai.", "Synchronization completed successfully."), false);
             if (done is not null && !string.IsNullOrWhiteSpace(done.Audit))
             {
@@ -733,7 +802,6 @@ internal sealed class MainForm : Form
         finally
         {
             SetBusy(false, T("Atnaujinama būsena po sinchronizavimo...", "Refreshing status after synchronization..."));
-            _timer.Start();
         }
 
         await RefreshAndCompareAsync(showErrors: false, forceCompare: true);
@@ -812,10 +880,8 @@ internal sealed class MainForm : Form
                 return;
             }
 
-            _progress.Style = ProgressBarStyle.Continuous;
-            _progress.Minimum = 0;
-            _progress.Maximum = Math.Max(1, point.TotalOperations);
-            _progress.Value = 0;
+            var restoreProgress = GetDeviceProgressBar(deviceIndex);
+            SetProgressRange(restoreProgress, point.TotalOperations);
             _statusLabel.Text = T(
                 $"Atkuriamas {device.DisplayName}...",
                 $"Restoring {device.DisplayName}...");
@@ -842,9 +908,12 @@ internal sealed class MainForm : Form
                         {
                             SafeUi(() =>
                             {
-                                _progress.Maximum = Math.Max(1, progress.Total);
+                                restoreProgress.Maximum = Math.Max(1, progress.Total);
                                 // Sent when an operation starts, so Current - 1 are done.
-                                _progress.Value = Math.Clamp(progress.Current - 1, 0, _progress.Maximum);
+                                restoreProgress.Value = Math.Clamp(
+                                    progress.Current - 1,
+                                    0,
+                                    restoreProgress.Maximum);
                                 _statusLabel.Text = $"{N(progress.Current)}/{N(progress.Total)}: {progress.Path}";
                             });
                         }
@@ -863,7 +932,7 @@ internal sealed class MainForm : Form
             var done = string.IsNullOrWhiteSpace(donePayload)
                 ? null
                 : JsonSerializer.Deserialize<RestoreDoneInfo>(donePayload, _jsonOptions);
-            _progress.Value = _progress.Maximum;
+            restoreProgress.Value = restoreProgress.Maximum;
             restoreCompleted = true;
 
             var resultMessage = done is null
@@ -899,7 +968,6 @@ internal sealed class MainForm : Form
             SetBusy(false, restoreCompleted
                 ? T("Atkūrimas baigtas.", "Restore completed.")
                 : GetWaitingStatus(_lastDevices));
-            _timer.Start();
         }
 
         if (restoreCompleted)
@@ -1108,7 +1176,7 @@ internal sealed class MainForm : Form
         _busy = false;
         _restoreAButton.Enabled = true;
         _restoreBButton.Enabled = true;
-        _progress.Style = ProgressBarStyle.Continuous;
+        SetProgressPercent(100);
         _comparison = comparison;
         UpdateComparison(comparison);
 
@@ -1128,9 +1196,8 @@ internal sealed class MainForm : Form
                 _restoreBButton.Enabled = false;
                 _syncButton.Enabled = false;
                 _syncButton.Text = T("Sinchronizuojama...", "Synchronizing...");
-                _progress.Minimum = 0;
-                _progress.Maximum = comparison.Transfers;
-                _progress.Value = 1_832;
+                SetProgressRange(_progressA, 3, 3);
+                SetProgressRange(_progressB, 4_249, 1_829);
                 _statusLabel.Text = $"{N(1_832)}/{N(4_252)}: gec\\N46E007.gec → AIR3-7.3+ #2";
                 AppendLog(T("Sinchronizuojama 4 252 failų (8.9 GB).", "Synchronizing 4,252 files (8.9 GB)."), false);
                 AppendLog("BACKUP RoadMap\\Lithuania_ML_DK.map", false);
@@ -1168,9 +1235,8 @@ internal sealed class MainForm : Form
                 };
                 _comparison = completed;
                 UpdateComparison(completed);
-                _progress.Minimum = 0;
-                _progress.Maximum = 1;
-                _progress.Value = 1;
+                SetProgressBarPercent(_progressA, 100);
+                SetProgressBarPercent(_progressB, 100);
                 AppendLog(T("Sinchronizavimas baigtas sėkmingai.", "Synchronization completed successfully."), false);
                 AppendLog(T("Perkelti 4 252 failai; klaidų: 0.", "Transferred 4,252 files; errors: 0."), false);
                 AppendLog(T("Auditas išsaugotas Documents\\XCTrackMapSync kataloge.", "Audit saved in the Documents\\XCTrackMapSync folder."), false);
@@ -1195,25 +1261,46 @@ internal sealed class MainForm : Form
         _syncButton.Text = T("Sinchronizuoti", "Synchronize");
         if (!_busy)
         {
-            _progress.Style = ProgressBarStyle.Continuous;
-            _progress.Minimum = 0;
-            _progress.Maximum = 100;
-            _progress.Value = 0;
+            SetProgressBarPercent(_progressA, 0);
+            SetProgressBarPercent(_progressB, 0);
         }
         _statusLabel.Text = message;
     }
 
-    private void SetProgressPercent(int percent)
+    private void SetProgressPercent(int percent, int? deviceIndex = null)
     {
         if (_quietRefresh)
         {
             return;
         }
 
-        _progress.Style = ProgressBarStyle.Continuous;
-        _progress.Minimum = 0;
-        _progress.Maximum = 100;
-        _progress.Value = Math.Clamp(percent, 0, 100);
+        if (deviceIndex is null or 0)
+        {
+            SetProgressBarPercent(_progressA, _lastDevices.Count > 0 ? percent : 0);
+        }
+        if (deviceIndex is null or 1)
+        {
+            SetProgressBarPercent(_progressB, _lastDevices.Count > 1 ? percent : 0);
+        }
+    }
+
+    private static void SetProgressBarPercent(ProgressBar progressBar, int percent)
+    {
+        progressBar.Style = ProgressBarStyle.Continuous;
+        progressBar.Minimum = 0;
+        progressBar.Maximum = 100;
+        progressBar.Value = Math.Clamp(percent, 0, 100);
+    }
+
+    private ProgressBar GetDeviceProgressBar(int deviceIndex) =>
+        deviceIndex == 0 ? _progressA : _progressB;
+
+    private static void SetProgressRange(ProgressBar progressBar, int maximum, int value = 0)
+    {
+        progressBar.Style = ProgressBarStyle.Continuous;
+        progressBar.Minimum = 0;
+        progressBar.Maximum = Math.Max(1, maximum);
+        progressBar.Value = Math.Clamp(value, 0, progressBar.Maximum);
     }
 
     private void SetBusy(bool busy, string status)
@@ -1233,7 +1320,14 @@ internal sealed class MainForm : Form
         }
         else if (!busy && wasBusy && !_quietRefresh)
         {
-            _progress.Value = _progress.Maximum;
+            if (_lastDevices.Count > 0)
+            {
+                _progressA.Value = _progressA.Maximum;
+            }
+            if (_lastDevices.Count > 1)
+            {
+                _progressB.Value = _progressB.Maximum;
+            }
         }
     }
 
@@ -1395,6 +1489,27 @@ internal sealed class MainForm : Form
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "XCTrackMapSync",
         "language.txt");
+
+    protected override void WndProc(ref Message message)
+    {
+        base.WndProc(ref message);
+
+        if (message.Msg != WmDeviceChange ||
+            !string.IsNullOrWhiteSpace(_demoMode) ||
+            _closing.IsCancellationRequested)
+        {
+            return;
+        }
+
+        var change = message.WParam.ToInt32();
+        if (change == DbtDeviceArrival || change == DbtDeviceRemoveComplete)
+        {
+            // Restart the one-shot timer so Windows can finish mounting or
+            // removing the MTP device before the folder scan begins.
+            _timer.Stop();
+            _timer.Start();
+        }
+    }
 
     private void SafeUi(Action action)
     {

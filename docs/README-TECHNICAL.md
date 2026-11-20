@@ -20,12 +20,12 @@ The GUI embeds `Sync-XCTrackMaps.ps1` and extracts it to
 Device status uses two stages. A native Windows Configuration Manager query
 reads only the currently present USB devices and selects those whose reported
 name contains `AIR3` (for example `AIR3-7.3+`). The USB ID alone is not used,
-because AIR³ shares MediaTek's generic MTP ID with many Android phones. On a warm application restart,
-the connected AIR³ status is shown in under two seconds. A separate Windows
-Shell scan then validates the XCTrack `Map` directory and changes the state
-from **USB / MTP connected** to **Connected and ready**. If the Shell scan is
-temporarily slow, the USB status remains green and validation is retried
-without requiring the cable to be disconnected.
+because AIR³ shares MediaTek's generic MTP ID with many Android phones. On a
+warm application restart, the connected AIR³ status is shown in under two
+seconds. A separate Windows Shell scan then validates the XCTrack `Map`
+directory and changes the state from **USB / MTP connected** to **Connected and
+ready**. If the Shell scan is temporarily slow, the USB status remains green
+and validation is retried without requiring the cable to be disconnected.
 
 Every engine call runs in its own new PowerShell process, so no Windows Shell
 MTP state is shared between checks. A check that exceeds its timeout is stopped
@@ -34,16 +34,16 @@ together with its child processes and retried on the next check.
 Both stages identify a device by its USB vendor ID, product ID, and serial
 number, so they update the same device card. Devices are ordered by that
 identity: device A, device B, and the `#1` / `#2` suffixes of identical models
-stay the same between checks. The background check runs every 10 seconds, but
-the full map comparison is repeated only when the connected pair changes, after
-**Refresh**, or after a synchronization or restore.
+stay the same between checks. There is no periodic full refresh. Windows USB
+arrival and removal messages trigger a one-shot validation after a short mount
+delay. Folder validation and map counting also run after **Refresh**, a
+synchronization, or a restore. After completed counting, the progress bar
+remains at 100 percent until a real operation starts.
 
-The progress bar is always determinate. Device checking advances through fixed
-USB, folder-validation, inventory, and completion stages. Synchronization and
-restore use the actual completed-file count reported by the engine.
-The background check that runs every 10 seconds does not move the progress bar
-or show a wait cursor unless it starts real work, such as counting maps on a
-newly connected device or comparing two devices.
+Both device progress bars are always determinate. Device checking advances each
+connected device through fixed USB, folder-validation, inventory, and
+completion stages. During synchronization, each bar advances only for files
+sent to that device. Restore advances only the selected device's bar.
 
 As soon as a device is ready, its card shows the number of road maps (`.map`)
 and terrain files (`.gec`), even if the second device is not connected yet.

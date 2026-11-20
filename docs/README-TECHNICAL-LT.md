@@ -35,16 +35,16 @@ sustabdoma kartu su jos antriniais procesais ir kartojama kitos patikros metu.
 Abu etapai įrenginį atpažįsta pagal USB gamintojo ID, produkto ID ir serijos
 numerį, todėl atnaujina tą pačią įrenginio kortelę. Įrenginiai rikiuojami pagal
 šį identifikatorių: įrenginys A, įrenginys B ir vienodų modelių `#1` / `#2`
-priesagos tarp patikrų nesikeičia. Foninė patikra vyksta kas 10 sekundžių, bet
-pilnas žemėlapių palyginimas kartojamas tik pasikeitus prijungtų įrenginių
-porai, paspaudus **Atnaujinti** arba po sinchronizavimo ar atkūrimo.
+priesagos tarp patikrų nesikeičia. Periodinės pilnos patikros nėra. Windows USB
+prijungimo ir atjungimo pranešimai po trumpos prijungimo delsos paleidžia vieną
+patikrą. Katalogai taip pat tikrinami ir žemėlapiai iš naujo skaičiuojami
+paspaudus **Atnaujinti**, po sinchronizavimo arba atkūrimo. Baigus skaičiavimą
+progreso juosta lieka ties 100 procentų iki kitos tikros operacijos.
 
-Progreso juosta visada rodo apibrėžtą eigą. Įrenginių tikrinimas pereina USB,
-katalogų patvirtinimo, failų sąrašo ir užbaigimo etapus. Sinchronizuojant ir
-atkuriant naudojamas variklio pateiktas tikras atliktų failų skaičius.
-Foninė patikra, vykstanti kas 10 sekundžių, progreso juostos nejudina ir laukimo
-žymeklio nerodo, nebent pradeda tikrą darbą: skaičiuoja naujai prijungto
-įrenginio žemėlapius arba lygina du įrenginius.
+Abi įrenginių progreso juostos visada rodo apibrėžtą eigą. Tikrinant kiekvienas
+prijungtas įrenginys atskirai pereina USB, katalogų patvirtinimo, failų sąrašo ir
+užbaigimo etapus. Sinchronizuojant kiekviena juosta juda tik tada, kai failas
+siunčiamas į jos įrenginį. Atkuriant juda tik pasirinkto įrenginio juosta.
 
 Kai tik įrenginys paruoštas, jo kortelėje rodomas kelių žemėlapių (`.map`) ir
 reljefo failų (`.gec`) skaičius, net jei antras įrenginys dar neprijungtas.
