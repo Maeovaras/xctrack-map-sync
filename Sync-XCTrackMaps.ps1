@@ -56,6 +56,9 @@ param(
     [switch] $GuiStatusJson,
 
     [Parameter()]
+    [switch] $GuiUsbStatusJson,
+
+    [Parameter()]
     [switch] $GuiCompareJson,
 
     [Parameter()]
@@ -77,7 +80,7 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
-$script:Shell = New-Object -ComObject Shell.Application
+$script:Shell = $null
 $script:CopyFlags = 532 # silent, no confirmation, no mkdir confirmation
 $script:Audit = New-Object System.Collections.Generic.List[object]
 $script:FailureCount = 0
@@ -212,6 +215,38 @@ namespace XCTrackMapSync
 function Write-Status {
     param([string] $Message)
     Write-Host ('[{0:HH:mm:ss}] {1}' -f (Get-Date), $Message)
+}
+
+function Get-Air3UsbDevices {
+    $devices = New-Object System.Collections.Generic.List[object]
+    $pnpDevices = @(Get-PnpDevice -PresentOnly -Class WPD -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Status -eq 'OK' -and
+            $_.FriendlyName -match '(?i)AIR\s*3'
+        })
+
+    foreach ($pnpDevice in $pnpDevices) {
+        $name = [string] $pnpDevice.FriendlyName
+        $devices.Add([pscustomobject]@{
+            DisplayName = $name
+            Name        = $name
+            Layout      = 'USB-MTP'
+            Path        = [string] $pnpDevice.InstanceId
+            Ready       = $false
+        })
+    }
+
+    foreach ($group in @($devices | Group-Object -Property Name)) {
+        if ($group.Count -gt 1) {
+            $index = 1
+            foreach ($device in $group.Group) {
+                $device.DisplayName = '{0} #{1}' -f $device.Name, $index
+                $index++
+            }
+        }
+    }
+
+    return $devices.ToArray()
 }
 
 function ConvertTo-SafeName {
@@ -1254,6 +1289,13 @@ function Invoke-DeviceRestore {
 }
 
 try {
+    if ($GuiUsbStatusJson) {
+        $usbPayload = @(Get-Air3UsbDevices)
+        Write-Output ('XCT_JSON:' + (ConvertTo-Json -InputObject $usbPayload -Compress))
+        exit 0
+    }
+
+    $script:Shell = New-Object -ComObject Shell.Application
     Write-Status 'Searching for connected XCTrack MTP devices...'
     $devices = @(Get-XCTrackDevices)
 
@@ -1264,6 +1306,7 @@ try {
                 Name        = $_.Name
                 Layout      = $_.Layout
                 Path        = $_.Path
+                Ready       = $true
             }
         })
         Write-Output ('XCT_JSON:' + (ConvertTo-Json -InputObject $statusPayload -Compress))

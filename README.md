@@ -29,6 +29,7 @@ devices, including compatible AIR³ devices.
 The application:
 
 - detects two connected and unlocked XCTrack devices;
+- shows an AIR³ device as USB / MTP connected immediately, then validates its XCTrack map folders in the background;
 - compares `Map/RoadMap` and `Map/gec`;
 - shows the current file count and total size for road maps and terrain on each device;
 - shows which device is missing files or has older versions;

@@ -322,6 +322,26 @@ internal sealed class MainForm : Form
         SetBusy(true, T("Tikrinami prijungti įrenginiai...", "Checking connected devices..."));
         try
         {
+            try
+            {
+                var usbResult = await _engine.RunAsync(
+                    new[] { "-GuiUsbStatusJson" },
+                    line => HandleEngineLine(line, includeProtocolLines: false),
+                    _closing.Token,
+                    TimeSpan.FromSeconds(8));
+                var usbPayload = usbResult.FindPayload(JsonPrefix);
+                if (usbResult.ExitCode == 0 && !string.IsNullOrWhiteSpace(usbPayload))
+                {
+                    var usbDevices = JsonSerializer.Deserialize<List<DeviceStatus>>(usbPayload, _jsonOptions) ?? new();
+                    UpdateDeviceState(usbDevices);
+                    _statusLabel.Text = GetWaitingStatus(usbDevices);
+                }
+            }
+            catch (Exception) when (!_closing.IsCancellationRequested)
+            {
+                // The full XCTrack directory scan below remains authoritative.
+            }
+
             var result = await ReadDeviceStatusWithRetryAsync();
 
             var payload = result.FindPayload(JsonPrefix);
@@ -333,7 +353,7 @@ internal sealed class MainForm : Form
             var devices = JsonSerializer.Deserialize<List<DeviceStatus>>(payload, _jsonOptions) ?? new();
             UpdateDeviceState(devices);
 
-            if (devices.Count == 2)
+            if (devices.Count == 2 && devices.All(device => device.Ready))
             {
                 await CompareAsync();
             }
@@ -345,7 +365,7 @@ internal sealed class MainForm : Form
             }
             else
             {
-                ResetComparison(GetWaitingStatus(devices.Count));
+                ResetComparison(GetWaitingStatus(devices));
             }
         }
         catch (OperationCanceledException) when (_closing.IsCancellationRequested)
@@ -377,28 +397,11 @@ internal sealed class MainForm : Form
 
     private async Task<PowerShellResult> ReadDeviceStatusWithRetryAsync()
     {
-        for (var attempt = 1; attempt <= 2; attempt++)
-        {
-            try
-            {
-                return await _engine.RunAsync(
-                    new[] { "-GuiStatusJson" },
-                    line => HandleEngineLine(line, includeProtocolLines: false),
-                    _closing.Token,
-                    TimeSpan.FromSeconds(12));
-            }
-            catch (TimeoutException) when (attempt == 1)
-            {
-                var message = T(
-                    "MTP patikra užtruko. Bandoma dar kartą...",
-                    "The MTP check timed out. Retrying...");
-                _statusLabel.Text = message;
-                AppendLog(message, true);
-                await Task.Delay(500, _closing.Token);
-            }
-        }
-
-        throw new TimeoutException("The MTP check timed out twice.");
+        return await _engine.RunAsync(
+            new[] { "-GuiStatusJson" },
+            line => HandleEngineLine(line, includeProtocolLines: false),
+            _closing.Token,
+            TimeSpan.FromSeconds(30));
     }
 
     private async Task CompareAsync()
@@ -670,7 +673,7 @@ internal sealed class MainForm : Form
         {
             SetBusy(false, restoreCompleted
                 ? T("Atkūrimas baigtas.", "Restore completed.")
-                : GetWaitingStatus(_lastDevices.Count));
+                : GetWaitingStatus(_lastDevices));
             _timer.Start();
         }
 
@@ -685,7 +688,17 @@ internal sealed class MainForm : Form
         _lastDevices = devices;
         if (devices.Count > 0)
         {
-            _deviceA.SetConnected(devices[0].DisplayName, devices[0].Layout, devices[0].Layout);
+            if (devices[0].Ready)
+            {
+                _deviceA.SetConnected(devices[0].DisplayName, devices[0].Layout, devices[0].Layout);
+            }
+            else
+            {
+                _deviceA.SetDetected(
+                    devices[0].DisplayName,
+                    T("USB / MTP prijungtas", "USB / MTP connected"),
+                    T("Tikrinami XCTrack žemėlapių katalogai...", "Checking XCTrack map folders..."));
+            }
         }
         else
         {
@@ -694,27 +707,45 @@ internal sealed class MainForm : Form
 
         if (devices.Count > 1)
         {
-            _deviceB.SetConnected(devices[1].DisplayName, devices[1].Layout, devices[1].Layout);
+            if (devices[1].Ready)
+            {
+                _deviceB.SetConnected(devices[1].DisplayName, devices[1].Layout, devices[1].Layout);
+            }
+            else
+            {
+                _deviceB.SetDetected(
+                    devices[1].DisplayName,
+                    T("USB / MTP prijungtas", "USB / MTP connected"),
+                    T("Tikrinami XCTrack žemėlapių katalogai...", "Checking XCTrack map folders..."));
+            }
         }
         else
         {
             _deviceB.SetDisconnected(T("Laukiama antro USB / MTP įrenginio", "Waiting for the second USB / MTP device"));
         }
 
-        var stateKey = string.Join("|", devices.Select(device => $"{device.DisplayName}:{device.Path}"));
+        var stateKey = string.Join("|", devices.Select(device => $"{device.DisplayName}:{device.Path}:{device.Ready}"));
         if (!string.Equals(stateKey, _lastLoggedDeviceStateKey, StringComparison.Ordinal))
         {
             if (devices.Count == 1)
             {
-                AppendLog(T(
-                    $"{devices[0].DisplayName} prijungtas ir paruoštas. Laukiama antro įrenginio.",
-                    $"{devices[0].DisplayName} is connected and ready. Waiting for the second device."), false);
+                AppendLog(devices[0].Ready
+                    ? T(
+                        $"{devices[0].DisplayName} prijungtas ir paruoštas. Laukiama antro įrenginio.",
+                        $"{devices[0].DisplayName} is connected and ready. Waiting for the second device.")
+                    : T(
+                        $"{devices[0].DisplayName} USB / MTP prijungtas. Tikrinami XCTrack katalogai.",
+                        $"{devices[0].DisplayName} USB / MTP is connected. Checking XCTrack folders."), false);
             }
             else if (devices.Count == 2)
             {
-                AppendLog(T(
-                    "Abu įrenginiai prijungti ir paruošti.",
-                    "Both devices are connected and ready."), false);
+                AppendLog(devices.All(device => device.Ready)
+                    ? T(
+                        "Abu įrenginiai prijungti ir paruošti.",
+                        "Both devices are connected and ready.")
+                    : T(
+                        "Abu USB / MTP įrenginiai prijungti. Tikrinami XCTrack katalogai.",
+                        "Both USB / MTP devices are connected. Checking XCTrack folders."), false);
             }
             else if (devices.Count == 0 && !string.IsNullOrEmpty(_lastLoggedDeviceStateKey))
             {
@@ -728,8 +759,8 @@ internal sealed class MainForm : Form
 
         if (!_busy)
         {
-            _restoreAButton.Enabled = devices.Count > 0;
-            _restoreBButton.Enabled = devices.Count > 1;
+            _restoreAButton.Enabled = devices.Count > 0 && devices[0].Ready;
+            _restoreBButton.Enabled = devices.Count > 1 && devices[1].Ready;
         }
     }
 
@@ -833,14 +864,16 @@ internal sealed class MainForm : Form
                 DisplayName = "AIR3-7.3+ #1",
                 Name = "AIR3-7.3+",
                 Layout = "Android-data",
-                Path = "demo-device-a"
+                Path = "demo-device-a",
+                Ready = true
             },
             new DeviceStatus
             {
                 DisplayName = "AIR3-7.3+ #2",
                 Name = "AIR3-7.3+",
                 Layout = "Android-data",
-                Path = "demo-device-b"
+                Path = "demo-device-b",
+                Ready = true
             }
         };
         _busy = false;
@@ -940,8 +973,8 @@ internal sealed class MainForm : Form
         _busy = busy;
         _refreshButton.Enabled = !busy;
         _languageCombo.Enabled = !busy;
-        _restoreAButton.Enabled = !busy && _lastDevices.Count > 0;
-        _restoreBButton.Enabled = !busy && _lastDevices.Count > 1;
+        _restoreAButton.Enabled = !busy && _lastDevices.Count > 0 && _lastDevices[0].Ready;
+        _restoreBButton.Enabled = !busy && _lastDevices.Count > 1 && _lastDevices[1].Ready;
         _syncButton.Enabled = !busy && _comparison is { Transfers: > 0 };
         _statusLabel.Text = status;
         UseWaitCursor = busy;
@@ -1025,13 +1058,20 @@ internal sealed class MainForm : Form
         }
         else if (!_busy)
         {
-            ResetComparison(GetWaitingStatus(_lastDevices.Count));
+            ResetComparison(GetWaitingStatus(_lastDevices));
         }
     }
 
-    private string GetWaitingStatus(int deviceCount)
+    private string GetWaitingStatus(IReadOnlyList<DeviceStatus> devices)
     {
-        return deviceCount switch
+        if (devices.Count > 0 && devices.Any(device => !device.Ready))
+        {
+            return T(
+                "AIR³ USB / MTP prijungtas – tikrinami XCTrack katalogai.",
+                "AIR³ USB / MTP is connected. Checking XCTrack folders.");
+        }
+
+        return devices.Count switch
         {
             0 => T(
                 "Neaptiktas nė vienas paruoštas XCTrack įrenginys.",

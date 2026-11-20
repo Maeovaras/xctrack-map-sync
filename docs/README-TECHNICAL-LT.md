@@ -17,6 +17,12 @@ Palaikomos XCTrack katalogų schemos:
 Grafinėje programoje įterptas `Sync-XCTrackMaps.ps1`. Prireikus jis
 automatiškai išskleidžiamas į `%LOCALAPPDATA%\XCTrackMapSync`.
 
+Įrenginio būsena nustatoma dviem etapais. Greita Windows WPD patikra iškart
+parodo prijungtą AIR³. Atskira Windows Shell patikra tada patvirtina XCTrack
+`Map` katalogą ir būseną pakeičia iš **USB / MTP prijungtas** į **Prijungtas ir
+paruoštas**. Jei Shell patikra laikinai užtrunka, USB būsena lieka žalia, o
+patikra kartojama nereikalaujant atjungti laido.
+
 ## Sinchronizavimo taisyklės
 
 Pagal nutylėjimą sinchronizuojama:

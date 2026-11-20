@@ -29,6 +29,7 @@ Android MTP įrenginių, įskaitant suderinamus AIR³ įrenginius.
 Programa:
 
 - aptinka du prijungtus ir atrakintus XCTrack įrenginius;
+- AIR³ iškart parodo kaip prijungtą per USB / MTP, o XCTrack žemėlapių katalogus patikrina fone;
 - palygina `Map/RoadMap` ir `Map/gec` katalogus;
 - parodo kiekvieno įrenginio esamą kelių bei reljefo failų kiekį ir bendrą dydį;
 - parodo, kuriame įrenginyje trūksta failų arba yra senesnių versijų;

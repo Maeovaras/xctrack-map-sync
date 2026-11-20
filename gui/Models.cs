@@ -14,6 +14,7 @@ internal sealed class DeviceStatus
     public string Name { get; set; } = string.Empty;
     public string Layout { get; set; } = string.Empty;
     public string Path { get; set; } = string.Empty;
+    public bool Ready { get; set; }
 }
 
 internal sealed class DeviceComparison

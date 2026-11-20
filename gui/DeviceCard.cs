@@ -188,6 +188,18 @@ internal sealed class DeviceCard : Panel
         _incoming.Text = string.Empty;
     }
 
+    public void SetDetected(string name, string state, string details)
+    {
+        _isConnected = true;
+        _dot.IsConnected = true;
+        _name.Text = name;
+        _state.Text = state;
+        _state.ForeColor = Color.FromArgb(18, 135, 80);
+        _details.Text = details;
+        _secondaryDetails.Text = string.Empty;
+        _incoming.Text = string.Empty;
+    }
+
     public void SetConnected(
         string name,
         string layout,

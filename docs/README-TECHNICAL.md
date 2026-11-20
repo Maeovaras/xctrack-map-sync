@@ -17,6 +17,13 @@ Supported XCTrack layouts:
 The GUI embeds `Sync-XCTrackMaps.ps1` and extracts it to
 `%LOCALAPPDATA%\XCTrackMapSync` when needed.
 
+Device status uses two stages. A fast Windows WPD check shows a connected AIR³
+device immediately. A separate Windows Shell scan then validates the XCTrack
+`Map` directory and changes the state from **USB / MTP connected** to
+**Connected and ready**. If the Shell scan is temporarily slow, the USB status
+remains green and validation is retried without requiring the cable to be
+disconnected.
+
 ## Synchronization rules
 
 The default scope is:
