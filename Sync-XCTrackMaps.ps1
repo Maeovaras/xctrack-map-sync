@@ -1366,6 +1366,23 @@ try {
         if ($null -eq $sumFirst) { $sumFirst = 0 }
         if ($null -eq $sumSecond) { $sumSecond = 0 }
 
+        $firstRoadMapBytes = ($firstInventory.Values |
+            Where-Object { $_.RelativePath -like 'RoadMap\*' } |
+            Measure-Object -Property Size -Sum).Sum
+        $firstGecBytes = ($firstInventory.Values |
+            Where-Object { $_.RelativePath -like 'gec\*' } |
+            Measure-Object -Property Size -Sum).Sum
+        $secondRoadMapBytes = ($secondInventory.Values |
+            Where-Object { $_.RelativePath -like 'RoadMap\*' } |
+            Measure-Object -Property Size -Sum).Sum
+        $secondGecBytes = ($secondInventory.Values |
+            Where-Object { $_.RelativePath -like 'gec\*' } |
+            Measure-Object -Property Size -Sum).Sum
+        if ($null -eq $firstRoadMapBytes) { $firstRoadMapBytes = 0 }
+        if ($null -eq $firstGecBytes) { $firstGecBytes = 0 }
+        if ($null -eq $secondRoadMapBytes) { $secondRoadMapBytes = 0 }
+        if ($null -eq $secondGecBytes) { $secondGecBytes = 0 }
+
         $comparePayload = [pscustomobject]@{
             DeviceA = [pscustomobject]@{
                 Name            = $firstDevice.DisplayName
@@ -1373,6 +1390,8 @@ try {
                 FileCount       = $firstInventory.Count
                 RoadMapCount    = @($firstInventory.Keys | Where-Object { $_ -like 'RoadMap\*' }).Count
                 GecCount        = @($firstInventory.Keys | Where-Object { $_ -like 'gec\*' }).Count
+                RoadMapBytes    = [int64] $firstRoadMapBytes
+                GecBytes        = [int64] $firstGecBytes
                 MissingIncoming = @($toFirst | Where-Object { $_.Action -eq 'CopyMissing' }).Count
                 NewerIncoming   = @($toFirst | Where-Object { $_.Action -eq 'ReplaceOlder' }).Count
                 BytesIncoming   = [int64] $sumFirst
@@ -1383,6 +1402,8 @@ try {
                 FileCount       = $secondInventory.Count
                 RoadMapCount    = @($secondInventory.Keys | Where-Object { $_ -like 'RoadMap\*' }).Count
                 GecCount        = @($secondInventory.Keys | Where-Object { $_ -like 'gec\*' }).Count
+                RoadMapBytes    = [int64] $secondRoadMapBytes
+                GecBytes        = [int64] $secondGecBytes
                 MissingIncoming = @($toSecond | Where-Object { $_.Action -eq 'CopyMissing' }).Count
                 NewerIncoming   = @($toSecond | Where-Object { $_.Action -eq 'ReplaceOlder' }).Count
                 BytesIncoming   = [int64] $sumSecond

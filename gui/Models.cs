@@ -23,6 +23,8 @@ internal sealed class DeviceComparison
     public int FileCount { get; set; }
     public int RoadMapCount { get; set; }
     public int GecCount { get; set; }
+    public long RoadMapBytes { get; set; }
+    public long GecBytes { get; set; }
     public int MissingIncoming { get; set; }
     public int NewerIncoming { get; set; }
     public long BytesIncoming { get; set; }

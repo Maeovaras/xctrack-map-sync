@@ -30,6 +30,7 @@ Programa:
 
 - aptinka du prijungtus ir atrakintus XCTrack įrenginius;
 - palygina `Map/RoadMap` ir `Map/gec` katalogus;
+- parodo kiekvieno įrenginio esamą kelių bei reljefo failų kiekį ir bendrą dydį;
 - parodo, kuriame įrenginyje trūksta failų arba yra senesnių versijų;
 - dvikrypčiai nukopijuoja trūkstamus failus;
 - skirtingo dydžio senesnį failą pakeičia tik tada, kai naujesnė pusė aiški;

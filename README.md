@@ -30,6 +30,7 @@ The application:
 
 - detects two connected and unlocked XCTrack devices;
 - compares `Map/RoadMap` and `Map/gec`;
+- shows the current file count and total size for road maps and terrain on each device;
 - shows which device is missing files or has older versions;
 - copies missing files in both directions;
 - replaces an older different-size file only when the newer side is clear;

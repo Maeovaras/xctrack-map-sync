@@ -51,8 +51,8 @@ internal sealed class MainForm : Form
         _language = LoadLanguage(languageOverride);
         Text = "XCTrack Map Sync";
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(880, 680);
-        Size = new Size(960, 760);
+        MinimumSize = new Size(1_012, 782);
+        Size = new Size(1_104, 874);
         BackColor = Color.FromArgb(246, 248, 251);
         Font = new Font("Segoe UI", 9.5f);
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -92,13 +92,13 @@ internal sealed class MainForm : Form
             RowCount = 7,
             BackColor = BackColor
         };
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 88));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 188));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 162));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 94));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 228));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 170));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 23));
 
         var header = new TableLayoutPanel
         {
@@ -739,20 +739,26 @@ internal sealed class MainForm : Form
             comparison.DeviceA.Name,
             comparison.DeviceA.Layout,
             T(
-                $"Kelių (RoadMap): {N(comparison.DeviceA.RoadMapCount)} • Reljefo (GEC): {N(comparison.DeviceA.GecCount)}",
-                $"Road maps: {N(comparison.DeviceA.RoadMapCount)} • Terrain (GEC): {N(comparison.DeviceA.GecCount)}"),
+                $"Kelių: {N(comparison.DeviceA.RoadMapCount)} failai, {FormatBytes(comparison.DeviceA.RoadMapBytes)}",
+                $"Road maps: {N(comparison.DeviceA.RoadMapCount)} files, {FormatBytes(comparison.DeviceA.RoadMapBytes)}"),
             T(
-                $"Gaus: {N(comparison.DeviceA.MissingIncoming + comparison.DeviceA.NewerIncoming)}",
-                $"Will receive: {N(comparison.DeviceA.MissingIncoming + comparison.DeviceA.NewerIncoming)}"));
+                $"Gaus: {N(comparison.DeviceA.MissingIncoming + comparison.DeviceA.NewerIncoming)} failus, {FormatBytes(comparison.DeviceA.BytesIncoming)}",
+                $"Will receive: {N(comparison.DeviceA.MissingIncoming + comparison.DeviceA.NewerIncoming)} files, {FormatBytes(comparison.DeviceA.BytesIncoming)}"),
+            T(
+                $"Reljefo: {N(comparison.DeviceA.GecCount)} failai, {FormatBytes(comparison.DeviceA.GecBytes)}",
+                $"Terrain: {N(comparison.DeviceA.GecCount)} files, {FormatBytes(comparison.DeviceA.GecBytes)}"));
         _deviceB.SetConnected(
             comparison.DeviceB.Name,
             comparison.DeviceB.Layout,
             T(
-                $"Kelių (RoadMap): {N(comparison.DeviceB.RoadMapCount)} • Reljefo (GEC): {N(comparison.DeviceB.GecCount)}",
-                $"Road maps: {N(comparison.DeviceB.RoadMapCount)} • Terrain (GEC): {N(comparison.DeviceB.GecCount)}"),
+                $"Kelių: {N(comparison.DeviceB.RoadMapCount)} failai, {FormatBytes(comparison.DeviceB.RoadMapBytes)}",
+                $"Road maps: {N(comparison.DeviceB.RoadMapCount)} files, {FormatBytes(comparison.DeviceB.RoadMapBytes)}"),
             T(
-                $"Gaus: {N(comparison.DeviceB.MissingIncoming + comparison.DeviceB.NewerIncoming)}",
-                $"Will receive: {N(comparison.DeviceB.MissingIncoming + comparison.DeviceB.NewerIncoming)}"));
+                $"Gaus: {N(comparison.DeviceB.MissingIncoming + comparison.DeviceB.NewerIncoming)} failus, {FormatBytes(comparison.DeviceB.BytesIncoming)}",
+                $"Will receive: {N(comparison.DeviceB.MissingIncoming + comparison.DeviceB.NewerIncoming)} files, {FormatBytes(comparison.DeviceB.BytesIncoming)}"),
+            T(
+                $"Reljefo: {N(comparison.DeviceB.GecCount)} failai, {FormatBytes(comparison.DeviceB.GecBytes)}",
+                $"Terrain: {N(comparison.DeviceB.GecCount)} files, {FormatBytes(comparison.DeviceB.GecBytes)}"));
 
         _summaryTitle.Text = comparison.Transfers == 0
             ? T("Abu įrenginiai jau sinchronizuoti", "Both devices are already synchronized")
@@ -795,6 +801,8 @@ internal sealed class MainForm : Form
                 FileCount = 5_340,
                 RoadMapCount = 48,
                 GecCount = 5_292,
+                RoadMapBytes = 3_221_225_472,
+                GecBytes = 21_474_836_480,
                 MissingIncoming = 2,
                 NewerIncoming = 1,
                 BytesIncoming = 524_288_000
@@ -806,6 +814,8 @@ internal sealed class MainForm : Form
                 FileCount = 1_094,
                 RoadMapCount = 18,
                 GecCount = 1_076,
+                RoadMapBytes = 1_073_741_824,
+                GecBytes = 4_294_967_296,
                 MissingIncoming = 4_246,
                 NewerIncoming = 3,
                 BytesIncoming = 9_032_679_424
@@ -875,7 +885,9 @@ internal sealed class MainForm : Form
                         Layout = "Android-data",
                         FileCount = 5_343,
                         RoadMapCount = 51,
-                        GecCount = 5_292
+                        GecCount = 5_292,
+                        RoadMapBytes = 3_745_513_472,
+                        GecBytes = 21_474_836_480
                     },
                     DeviceB = new DeviceComparison
                     {
@@ -883,7 +895,9 @@ internal sealed class MainForm : Form
                         Layout = "Android-data",
                         FileCount = 5_343,
                         RoadMapCount = 51,
-                        GecCount = 5_292
+                        GecCount = 5_292,
+                        RoadMapBytes = 3_745_513_472,
+                        GecBytes = 21_474_836_480
                     },
                     Transfers = 0,
                     Same = 5_343,

@@ -10,6 +10,7 @@ internal sealed class DeviceCard : Panel
     private readonly Label _name;
     private readonly Label _state;
     private readonly Label _details;
+    private readonly Label _secondaryDetails;
     private readonly Label _incoming;
     private string _disconnectedText = "Neprijungtas";
     private string _waitingText = "Laukiama USB / MTP įrenginio";
@@ -96,7 +97,7 @@ internal sealed class DeviceCard : Panel
         {
             Text = "Atrakinkite įrenginį ir pasirinkite File transfer.",
             Dock = DockStyle.Fill,
-            AutoEllipsis = true,
+            AutoEllipsis = false,
             ForeColor = Color.FromArgb(100, 110, 125),
             Font = new Font("Segoe UI", 9f),
             TextAlign = ContentAlignment.TopLeft,
@@ -114,19 +115,32 @@ internal sealed class DeviceCard : Panel
             Margin = Padding.Empty
         };
 
+        _secondaryDetails = new Label
+        {
+            Text = string.Empty,
+            Dock = DockStyle.Fill,
+            AutoEllipsis = false,
+            ForeColor = Color.FromArgb(100, 110, 125),
+            Font = new Font("Segoe UI", 9f),
+            TextAlign = ContentAlignment.TopLeft,
+            Margin = Padding.Empty
+        };
+
         var detailsPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             BackColor = Color.White,
-            Padding = new Padding(0, 5, 0, 0),
+            Padding = new Padding(0, 2, 0, 0),
             Margin = Padding.Empty,
             ColumnCount = 1,
-            RowCount = 2
+            RowCount = 3
         };
-        detailsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
-        detailsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+        detailsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 31));
+        detailsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 31));
+        detailsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 38));
         detailsPanel.Controls.Add(_details, 0, 0);
-        detailsPanel.Controls.Add(_incoming, 0, 1);
+        detailsPanel.Controls.Add(_secondaryDetails, 0, 1);
+        detailsPanel.Controls.Add(_incoming, 0, 2);
 
         layout.Controls.Add(_caption, 0, 0);
         layout.Controls.Add(nameRow, 0, 1);
@@ -157,6 +171,7 @@ internal sealed class DeviceCard : Panel
             _name.Text = _disconnectedText;
             _state.Text = _waitingText;
             _details.Text = _unlockText;
+            _secondaryDetails.Text = string.Empty;
             _incoming.Text = string.Empty;
         }
     }
@@ -169,10 +184,16 @@ internal sealed class DeviceCard : Panel
         _state.Text = message ?? _waitingText;
         _state.ForeColor = Color.FromArgb(185, 55, 55);
         _details.Text = _unlockText;
+        _secondaryDetails.Text = string.Empty;
         _incoming.Text = string.Empty;
     }
 
-    public void SetConnected(string name, string layout, string details, string incoming = "")
+    public void SetConnected(
+        string name,
+        string layout,
+        string details,
+        string incoming = "",
+        string secondaryDetails = "")
     {
         _isConnected = true;
         _dot.IsConnected = true;
@@ -180,6 +201,7 @@ internal sealed class DeviceCard : Panel
         _state.Text = _connectedText;
         _state.ForeColor = Color.FromArgb(18, 135, 80);
         _details.Text = string.IsNullOrWhiteSpace(details) ? layout : details;
+        _secondaryDetails.Text = secondaryDetails;
         _incoming.Text = incoming;
     }
 
