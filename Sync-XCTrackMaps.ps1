@@ -59,6 +59,9 @@ param(
     [switch] $GuiUsbStatusJson,
 
     [Parameter()]
+    [switch] $GuiInventoryJson,
+
+    [Parameter()]
     [switch] $GuiCompareJson,
 
     [Parameter()]
@@ -496,6 +499,45 @@ function Get-DeviceInventory {
         Add-MtpInventoryRecursive -FolderItem $folder -RelativeFolder $folderName -Inventory $inventory
     }
     return $inventory
+}
+
+function Get-MtpFileCountRecursive {
+    param(
+        [Parameter(Mandatory = $true)] $FolderItem,
+        [Parameter(Mandatory = $true)] [string] $Extension
+    )
+
+    $count = 0
+    foreach ($item in @($FolderItem.GetFolder.Items())) {
+        if ($item.IsFolder) {
+            $count += Get-MtpFileCountRecursive -FolderItem $item -Extension $Extension
+        }
+        elseif ([IO.Path]::GetExtension([string] $item.Name) -ieq $Extension) {
+            $count++
+        }
+    }
+    return $count
+}
+
+function Get-DeviceMapCounts {
+    param([Parameter(Mandatory = $true)] $Device)
+
+    $roadMapFolder = Get-ChildMtpItem -ParentItem $Device.MapItem -Name 'RoadMap' -FolderOnly
+    $gecFolder = Get-ChildMtpItem -ParentItem $Device.MapItem -Name 'gec' -FolderOnly
+    return [pscustomobject]@{
+        RoadMapCount = if ($null -eq $roadMapFolder) {
+            0
+        }
+        else {
+            Get-MtpFileCountRecursive -FolderItem $roadMapFolder -Extension '.map'
+        }
+        GecCount = if ($null -eq $gecFolder) {
+            0
+        }
+        else {
+            Get-MtpFileCountRecursive -FolderItem $gecFolder -Extension '.gec'
+        }
+    }
 }
 
 function Get-SyncPlan {
@@ -1310,6 +1352,31 @@ try {
             }
         })
         Write-Output ('XCT_JSON:' + (ConvertTo-Json -InputObject $statusPayload -Compress))
+        exit 0
+    }
+
+    if ($GuiInventoryJson) {
+        if ([string]::IsNullOrWhiteSpace($RestoreDevicePath)) {
+            throw 'RestoreDevicePath is required with GuiInventoryJson.'
+        }
+        $inventoryDevice = @($devices | Where-Object { $_.Path -eq $RestoreDevicePath }) |
+            Select-Object -First 1
+        if ($null -eq $inventoryDevice) {
+            throw 'The selected inventory device is not connected or its USB identity changed.'
+        }
+
+        $mapCounts = Get-DeviceMapCounts -Device $inventoryDevice
+        $inventoryPayload = [pscustomobject]@{
+            DisplayName   = $inventoryDevice.DisplayName
+            Name          = $inventoryDevice.Name
+            Layout        = $inventoryDevice.Layout
+            Path          = $inventoryDevice.Path
+            Ready         = $true
+            InventoryRead = $true
+            RoadMapCount  = [int] $mapCounts.RoadMapCount
+            GecCount      = [int] $mapCounts.GecCount
+        }
+        Write-Output ('XCT_JSON:' + ($inventoryPayload | ConvertTo-Json -Compress))
         exit 0
     }
 

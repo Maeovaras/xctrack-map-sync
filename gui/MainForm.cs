@@ -33,6 +33,7 @@ internal sealed class MainForm : Form
     private readonly RichTextBox _log = new();
     private readonly System.Windows.Forms.Timer _timer = new();
     private readonly CancellationTokenSource _closing = new();
+    private readonly Dictionary<string, DeviceStatus> _inventoryCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly string? _demoMode;
     private readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -150,7 +151,11 @@ internal sealed class MainForm : Form
         _refreshButton.Anchor = AnchorStyles.Right;
         _refreshButton.Margin = Padding.Empty;
         StyleSecondaryButton(_refreshButton);
-        _refreshButton.Click += async (_, _) => await RefreshAndCompareAsync(showErrors: true);
+        _refreshButton.Click += async (_, _) =>
+        {
+            _inventoryCache.Clear();
+            await RefreshAndCompareAsync(showErrors: true);
+        };
         header.Controls.Add(_titleLabel, 0, 0);
         header.Controls.Add(_subtitleLabel, 0, 1);
         header.Controls.Add(_languageCombo, 1, 0);
@@ -351,7 +356,53 @@ internal sealed class MainForm : Form
             }
 
             var devices = JsonSerializer.Deserialize<List<DeviceStatus>>(payload, _jsonOptions) ?? new();
+            foreach (var device in devices)
+            {
+                if (_inventoryCache.TryGetValue(device.Path, out var cachedInventory))
+                {
+                    device.InventoryRead = true;
+                    device.RoadMapCount = cachedInventory.RoadMapCount;
+                    device.GecCount = cachedInventory.GecCount;
+                }
+            }
             UpdateDeviceState(devices);
+
+            if (devices.Count == 1 && devices[0].Ready && !devices[0].InventoryRead)
+            {
+                _statusLabel.Text = T(
+                    "Skaičiuojami kelių ir reljefo žemėlapiai...",
+                    "Counting road maps and terrain files...");
+                try
+                {
+                    var inventoryResult = await _engine.RunAsync(
+                        new[] { "-GuiInventoryJson", "-RestoreDevicePath", devices[0].Path },
+                        line => HandleEngineLine(line, includeProtocolLines: false),
+                        _closing.Token,
+                        TimeSpan.FromMinutes(5));
+                    var inventoryPayload = inventoryResult.FindPayload(JsonPrefix);
+                    if (inventoryResult.ExitCode != 0 || string.IsNullOrWhiteSpace(inventoryPayload))
+                    {
+                        throw new InvalidOperationException(BuildError(
+                            inventoryResult,
+                            T("Nepavyko suskaičiuoti žemėlapių.", "Could not count map files.")));
+                    }
+
+                    var inventory = JsonSerializer.Deserialize<DeviceStatus>(inventoryPayload, _jsonOptions)
+                        ?? throw new InvalidOperationException(T(
+                            "Gauta netinkama žemėlapių statistika.",
+                            "The map statistics response was invalid."));
+                    inventory.InventoryRead = true;
+                    _inventoryCache[inventory.Path] = inventory;
+                    devices[0] = inventory;
+                    UpdateDeviceState(devices);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException || !_closing.IsCancellationRequested)
+                {
+                    AppendLog(T(
+                        "Žemėlapių skaičiavimas nepavyko: ",
+                        "Map counting failed: ") + ex.Message, true);
+                }
+            }
 
             if (devices.Count == 2 && devices.All(device => device.Ready))
             {
@@ -512,6 +563,7 @@ internal sealed class MainForm : Form
             _timer.Start();
         }
 
+        _inventoryCache.Clear();
         await RefreshAndCompareAsync(showErrors: false);
     }
 
@@ -679,6 +731,7 @@ internal sealed class MainForm : Form
 
         if (restoreCompleted)
         {
+            _inventoryCache.Clear();
             await RefreshAndCompareAsync(showErrors: false);
         }
     }
@@ -690,7 +743,20 @@ internal sealed class MainForm : Form
         {
             if (devices[0].Ready)
             {
-                _deviceA.SetConnected(devices[0].DisplayName, devices[0].Layout, devices[0].Layout);
+                _deviceA.SetConnected(
+                    devices[0].DisplayName,
+                    devices[0].Layout,
+                    devices[0].InventoryRead
+                        ? T(
+                            $"Kelių žemėlapiai: {N(devices[0].RoadMapCount)}",
+                            $"Road maps: {N(devices[0].RoadMapCount)}")
+                        : T("XCTrack katalogai paruošti", "XCTrack folders are ready"),
+                    string.Empty,
+                    devices[0].InventoryRead
+                        ? T(
+                            $"Reljefo žemėlapiai: {N(devices[0].GecCount)}",
+                            $"Terrain: {N(devices[0].GecCount)}")
+                        : T("Skaičiuojami žemėlapiai...", "Counting map files..."));
             }
             else
             {
@@ -709,7 +775,20 @@ internal sealed class MainForm : Form
         {
             if (devices[1].Ready)
             {
-                _deviceB.SetConnected(devices[1].DisplayName, devices[1].Layout, devices[1].Layout);
+                _deviceB.SetConnected(
+                    devices[1].DisplayName,
+                    devices[1].Layout,
+                    devices[1].InventoryRead
+                        ? T(
+                            $"Kelių žemėlapiai: {N(devices[1].RoadMapCount)}",
+                            $"Road maps: {N(devices[1].RoadMapCount)}")
+                        : T("XCTrack katalogai paruošti", "XCTrack folders are ready"),
+                    string.Empty,
+                    devices[1].InventoryRead
+                        ? T(
+                            $"Reljefo žemėlapiai: {N(devices[1].GecCount)}",
+                            $"Terrain: {N(devices[1].GecCount)}")
+                        : T("Skaičiuojami žemėlapiai...", "Counting map files..."));
             }
             else
             {
