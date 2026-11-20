@@ -286,7 +286,7 @@ function Get-Air3UsbDevices {
     $pnpDevices = @(Get-PnpDevice -PresentOnly -Class WPD -ErrorAction SilentlyContinue |
         Where-Object {
             $_.Status -eq 'OK' -and
-            $_.FriendlyName -match '(?i)AIR\s*3'
+            $_.FriendlyName -match '(?i)AIR\s*(3|\u00B3)'
         })
 
     foreach ($pnpDevice in $pnpDevices) {

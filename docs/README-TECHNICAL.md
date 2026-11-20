@@ -18,16 +18,18 @@ The GUI embeds `Sync-XCTrackMaps.ps1` and extracts it to
 `%LOCALAPPDATA%\XCTrackMapSync` when needed.
 
 Device status uses two stages. A native Windows Configuration Manager query
-reads only the currently present USB device IDs. On a warm application restart,
+reads only the currently present USB devices and selects those whose reported
+name contains `AIR3` (for example `AIR3-7.3+`). The USB ID alone is not used,
+because AIR³ shares MediaTek's generic MTP ID with many Android phones. On a warm application restart,
 the connected AIR³ status is shown in under two seconds. A separate Windows
 Shell scan then validates the XCTrack `Map` directory and changes the state
 from **USB / MTP connected** to **Connected and ready**. If the Shell scan is
 temporarily slow, the USB status remains green and validation is retried
 without requiring the cable to be disconnected.
 
-The folder validation runs through an isolated child PowerShell process. This
-prevents stale Windows Shell MTP state in a long-running GUI session from making
-every later validation wait for the 30-second timeout.
+Every engine call runs in its own new PowerShell process, so no Windows Shell
+MTP state is shared between checks. A check that exceeds its timeout is stopped
+together with its child processes and retried on the next check.
 
 Both stages identify a device by its USB vendor ID, product ID, and serial
 number, so they update the same device card. Devices are ordered by that

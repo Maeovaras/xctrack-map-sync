@@ -18,16 +18,19 @@ Grafinėje programoje įterptas `Sync-XCTrackMaps.ps1`. Prireikus jis
 automatiškai išskleidžiamas į `%LOCALAPPDATA%\XCTrackMapSync`.
 
 Įrenginio būsena nustatoma dviem etapais. Tiesioginė Windows Configuration
-Manager užklausa nuskaito tik šiuo metu prijungtų USB įrenginių ID. Pakartotinai
+Manager užklausa nuskaito tik šiuo metu prijungtus USB įrenginius ir atrenka tuos,
+kurių pranešamame pavadinime yra `AIR3` (pvz., `AIR3-7.3+`). Vien USB ID
+nenaudojamas, nes AIR³ naudoja bendrą MediaTek MTP ID, kurį turi ir daug Android
+telefonų. Pakartotinai
 paleidus programą prijungtas AIR³ parodomas per mažiau nei dvi sekundes. Atskira
 Windows Shell patikra tada patvirtina XCTrack `Map` katalogą ir būseną pakeičia
 iš **USB / MTP prijungtas** į **Prijungtas ir paruoštas**. Jei Shell patikra
 laikinai užtrunka, USB būsena lieka žalia, o patikra kartojama nereikalaujant
 atjungti laido.
 
-Katalogų patikra vykdoma izoliuotame antriniame PowerShell procese. Tai neleidžia
-ilgai veikiančioje programoje likusiai Windows Shell MTP būsenai užblokuoti visų
-vėlesnių patikrų iki 30 sekundžių skirtojo laiko pabaigos.
+Kiekvienas variklio iškvietimas vykdomas atskirame naujame PowerShell procese,
+todėl patikros nesidalija Windows Shell MTP būsena. Per ilgai trunkanti patikra
+sustabdoma kartu su jos antriniais procesais ir kartojama kitos patikros metu.
 
 Abu etapai įrenginį atpažįsta pagal USB gamintojo ID, produkto ID ir serijos
 numerį, todėl atnaujina tą pačią įrenginio kortelę. Įrenginiai rikiuojami pagal
