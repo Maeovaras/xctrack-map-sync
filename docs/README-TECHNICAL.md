@@ -25,6 +25,10 @@ from **USB / MTP connected** to **Connected and ready**. If the Shell scan is
 temporarily slow, the USB status remains green and validation is retried
 without requiring the cable to be disconnected.
 
+The folder validation runs through an isolated child PowerShell process. This
+prevents stale Windows Shell MTP state in a long-running GUI session from making
+every later validation wait for the 30-second timeout.
+
 Both stages identify a device by its USB vendor ID, product ID, and serial
 number, so they update the same device card. Devices are ordered by that
 identity: device A, device B, and the `#1` / `#2` suffixes of identical models

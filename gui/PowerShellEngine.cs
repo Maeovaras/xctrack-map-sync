@@ -16,8 +16,10 @@ internal sealed class PowerShellEngine
         IEnumerable<string> scriptArguments,
         Action<PowerShellLine>? onLine,
         CancellationToken cancellationToken,
-        TimeSpan? timeout = null)
+        TimeSpan? timeout = null,
+        bool useChildPowerShell = false)
     {
+        var arguments = scriptArguments.ToArray();
         var startInfo = new ProcessStartInfo
         {
             FileName = "powershell.exe",
@@ -31,11 +33,26 @@ internal sealed class PowerShellEngine
         startInfo.ArgumentList.Add("-NoProfile");
         startInfo.ArgumentList.Add("-ExecutionPolicy");
         startInfo.ArgumentList.Add("Bypass");
-        startInfo.ArgumentList.Add("-File");
-        startInfo.ArgumentList.Add(_scriptPath);
-        foreach (var argument in scriptArguments)
+        if (useChildPowerShell)
         {
-            startInfo.ArgumentList.Add(argument);
+            // A fresh intermediate process isolates Windows Shell MTP state.
+            // Some long-lived GUI sessions otherwise leave every subsequent
+            // direct Shell scan blocked until its timeout.
+            startInfo.ArgumentList.Add("-Command");
+            var quotedEnginePath = QuotePowerShellArgument(_scriptPath);
+            var quotedArguments = string.Join(" ", arguments.Select(QuotePowerShellArgument));
+            startInfo.ArgumentList.Add(
+                $"& powershell.exe -NoProfile -ExecutionPolicy Bypass -File {quotedEnginePath} {quotedArguments}; " +
+                "exit $LASTEXITCODE");
+        }
+        else
+        {
+            startInfo.ArgumentList.Add("-File");
+            startInfo.ArgumentList.Add(_scriptPath);
+            foreach (var argument in arguments)
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
         }
 
         using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
@@ -148,4 +165,7 @@ internal sealed class PowerShellEngine
         source.CopyTo(destination);
         return path;
     }
+
+    private static string QuotePowerShellArgument(string value) =>
+        $"'{value.Replace("'", "''", StringComparison.Ordinal)}'";
 }

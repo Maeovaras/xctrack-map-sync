@@ -604,7 +604,8 @@ internal sealed class MainForm : Form
             new[] { "-GuiStatusJson" },
             line => HandleEngineLine(line, includeProtocolLines: false),
             _closing.Token,
-            TimeSpan.FromSeconds(30));
+            TimeSpan.FromSeconds(30),
+            useChildPowerShell: true);
     }
 
     private async Task CompareAsync()

@@ -25,6 +25,10 @@ iš **USB / MTP prijungtas** į **Prijungtas ir paruoštas**. Jei Shell patikra
 laikinai užtrunka, USB būsena lieka žalia, o patikra kartojama nereikalaujant
 atjungti laido.
 
+Katalogų patikra vykdoma izoliuotame antriniame PowerShell procese. Tai neleidžia
+ilgai veikiančioje programoje likusiai Windows Shell MTP būsenai užblokuoti visų
+vėlesnių patikrų iki 30 sekundžių skirtojo laiko pabaigos.
+
 Abu etapai įrenginį atpažįsta pagal USB gamintojo ID, produkto ID ir serijos
 numerį, todėl atnaujina tą pačią įrenginio kortelę. Įrenginiai rikiuojami pagal
 šį identifikatorių: įrenginys A, įrenginys B ir vienodų modelių `#1` / `#2`
