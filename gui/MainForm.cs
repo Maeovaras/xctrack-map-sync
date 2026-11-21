@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Globalization;
+using System.Drawing.Drawing2D;
 
 namespace XCTrackMapSync;
 
@@ -21,6 +22,7 @@ internal sealed class MainForm : Form
     private readonly DeviceCard _deviceA = new("Device A");
     private readonly DeviceCard _deviceB = new("Device B");
     private readonly Label _titleLabel = new();
+    private readonly Image _paragliderIcon = CreateParagliderIcon();
     private readonly Label _subtitleLabel = new();
     private readonly Label _footerLabel = new();
     private readonly ComboBox _languageCombo = new();
@@ -115,6 +117,7 @@ internal sealed class MainForm : Form
             await RefreshAndCompareAsync(showErrors: true);
         };
         FormClosing += (_, _) => _closing.Cancel();
+        FormClosed += (_, _) => _paragliderIcon.Dispose();
     }
 
     private void BuildInterface()
@@ -155,6 +158,27 @@ internal sealed class MainForm : Form
         _titleLabel.AutoEllipsis = true;
         _titleLabel.Margin = Padding.Empty;
 
+        var titlePanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
+        };
+        titlePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 44));
+        titlePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        var paragliderPicture = new PictureBox
+        {
+            Dock = DockStyle.Fill,
+            Image = _paragliderIcon,
+            SizeMode = PictureBoxSizeMode.CenterImage,
+            Margin = Padding.Empty,
+            BackColor = Color.Transparent
+        };
+        titlePanel.Controls.Add(paragliderPicture, 0, 0);
+        titlePanel.Controls.Add(_titleLabel, 1, 0);
+
         _subtitleLabel.Dock = DockStyle.Fill;
         _subtitleLabel.Font = new Font("Segoe UI", 10f);
         _subtitleLabel.ForeColor = Color.FromArgb(100, 110, 125);
@@ -186,7 +210,7 @@ internal sealed class MainForm : Form
         _refreshButton.Margin = Padding.Empty;
         StyleSecondaryButton(_refreshButton);
         _refreshButton.Click += async (_, _) => await RefreshAndCompareAsync(showErrors: true, forceCompare: true);
-        header.Controls.Add(_titleLabel, 0, 0);
+        header.Controls.Add(titlePanel, 0, 0);
         header.Controls.Add(_subtitleLabel, 0, 1);
         header.Controls.Add(_languageCombo, 1, 0);
         header.SetRowSpan(_languageCombo, 2);
@@ -1671,5 +1695,33 @@ internal sealed class MainForm : Form
         button.ForeColor = Color.FromArgb(55, 65, 81);
         button.Font = new Font("Segoe UI Semibold", 9.5f);
         button.Cursor = Cursors.Hand;
+    }
+
+    private static Image CreateParagliderIcon()
+    {
+        var bitmap = new Bitmap(38, 34);
+        using var graphics = Graphics.FromImage(bitmap);
+        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
+        using var canopy = new GraphicsPath();
+        canopy.AddBezier(2, 12, 8, 1, 30, 1, 36, 12);
+        canopy.AddBezier(36, 12, 27, 8, 11, 8, 2, 12);
+        canopy.CloseFigure();
+        using var canopyBrush = new SolidBrush(Color.FromArgb(196, 139, 0));
+        graphics.FillPath(canopyBrush, canopy);
+
+        using var linePen = new Pen(Color.FromArgb(76, 88, 105), 1.4f);
+        graphics.DrawLine(linePen, 5, 12, 18, 24);
+        graphics.DrawLine(linePen, 33, 12, 20, 24);
+        graphics.DrawLine(linePen, 14, 10, 19, 24);
+        graphics.DrawLine(linePen, 25, 10, 19, 24);
+
+        using var pilotBrush = new SolidBrush(Color.FromArgb(26, 34, 48));
+        graphics.FillEllipse(pilotBrush, 17, 22, 5, 5);
+        using var pilotPen = new Pen(Color.FromArgb(26, 34, 48), 2f);
+        graphics.DrawLine(pilotPen, 19.5f, 26, 19.5f, 31);
+        graphics.DrawLine(pilotPen, 19.5f, 29, 15.5f, 32);
+        graphics.DrawLine(pilotPen, 19.5f, 29, 23.5f, 32);
+        return bitmap;
     }
 }

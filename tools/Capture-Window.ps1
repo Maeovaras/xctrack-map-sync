@@ -35,6 +35,9 @@ public static class NativeWindowCapture
 
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr handle, int command);
+
+    [DllImport("user32.dll")]
+    public static extern bool PrintWindow(IntPtr handle, IntPtr deviceContext, uint flags);
 }
 '@
 }
@@ -48,9 +51,9 @@ if ($process.MainWindowHandle -eq [IntPtr]::Zero) {
 
 [void] [NativeWindowCapture]::ShowWindow($process.MainWindowHandle, 9)
 [void] [NativeWindowCapture]::SetForegroundWindow($process.MainWindowHandle)
-Start-Sleep -Milliseconds 750
+Start-Sleep -Milliseconds 2500
 [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
-Start-Sleep -Milliseconds 250
+Start-Sleep -Milliseconds 500
 
 $rectangle = New-Object NativeWindowCapture+RECT
 if (-not [NativeWindowCapture]::GetWindowRect($process.MainWindowHandle, [ref] $rectangle)) {
@@ -62,7 +65,19 @@ $height = $rectangle.Bottom - $rectangle.Top
 $bitmap = New-Object System.Drawing.Bitmap($width, $height)
 $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
 try {
-    $graphics.CopyFromScreen($rectangle.Left, $rectangle.Top, 0, 0, $bitmap.Size)
+    $deviceContext = $graphics.GetHdc()
+    try {
+        $printed = [NativeWindowCapture]::PrintWindow(
+            $process.MainWindowHandle,
+            $deviceContext,
+            2) # PW_RENDERFULLCONTENT
+    }
+    finally {
+        $graphics.ReleaseHdc($deviceContext)
+    }
+    if (-not $printed) {
+        $graphics.CopyFromScreen($rectangle.Left, $rectangle.Top, 0, 0, $bitmap.Size)
+    }
     $bitmap.Save($OutputPath, [System.Drawing.Imaging.ImageFormat]::Png)
 }
 finally {
