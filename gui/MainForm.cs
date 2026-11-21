@@ -14,6 +14,8 @@ internal sealed class MainForm : Form
     private const string RestorePointsPrefix = "XCT_RESTORE_POINTS:";
     private const string RestoreProgressPrefix = "XCT_RESTORE_PROGRESS:";
     private const string RestoreDonePrefix = "XCT_RESTORE_DONE:";
+    private const int MapCountAttempts = 2;
+    private static readonly TimeSpan MapCountAttemptTimeout = TimeSpan.FromSeconds(75);
 
     private PowerShellEngine? _engine;
     private readonly DeviceCard _deviceA = new("Device A");
@@ -569,11 +571,7 @@ internal sealed class MainForm : Form
             SetProgressPercent(55, deviceIndex);
             try
             {
-                var result = await Engine.RunAsync(
-                    new[] { "-GuiStatsJson", "-StatsDevicePath", device.Path },
-                    line => HandleEngineLine(line, includeProtocolLines: false),
-                    _closing.Token,
-                    TimeSpan.FromMinutes(10));
+                var result = await ReadDeviceStatsWithRetryAsync(device);
                 var payload = result.FindPayload(JsonPrefix);
                 if (result.ExitCode != 0 || string.IsNullOrWhiteSpace(payload))
                 {
@@ -589,13 +587,42 @@ internal sealed class MainForm : Form
             }
             catch (Exception ex) when (!_closing.IsCancellationRequested)
             {
-                // Do not retry automatically; Refresh clears this and tries again.
+                // Refresh clears this failure and allows another user-initiated try.
                 _deviceStatsFailed.Add(device.Identity);
-                AppendLog(T("KLAIDA: ", "ERROR: ") + ex.Message, true);
+                var message = ex is TimeoutException
+                    ? T(
+                        "MTP žemėlapių skaičiavimas neatsakė po 2 bandymų. Spauskite Atnaujinti.",
+                        "MTP map counting did not respond after 2 attempts. Click Refresh.")
+                    : T("KLAIDA: ", "ERROR: ") + ex.Message;
+                AppendLog(message, true);
             }
             SetProgressPercent(95, deviceIndex);
             UpdateDeviceState(devices);
         }
+    }
+
+    private async Task<PowerShellResult> ReadDeviceStatsWithRetryAsync(DeviceStatus device)
+    {
+        for (var attempt = 1; attempt <= MapCountAttempts; attempt++)
+        {
+            try
+            {
+                return await Engine.RunAsync(
+                    new[] { "-GuiStatsJson", "-StatsDevicePath", device.Path },
+                    line => HandleEngineLine(line, includeProtocolLines: false),
+                    _closing.Token,
+                    MapCountAttemptTimeout);
+            }
+            catch (TimeoutException) when (attempt < MapCountAttempts)
+            {
+                AppendLog(T(
+                    $"{device.DisplayName} MTP neatsakė. Bandymas {attempt + 1}/{MapCountAttempts}...",
+                    $"{device.DisplayName} MTP did not respond. Attempt {attempt + 1}/{MapCountAttempts}..."), true);
+                await Task.Delay(750, _closing.Token);
+            }
+        }
+
+        throw new TimeoutException();
     }
 
     private (string RoadMaps, string Terrain) FormatStats(DeviceComparison stats)
