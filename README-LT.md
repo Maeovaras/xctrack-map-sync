@@ -31,6 +31,8 @@ Programa:
 - aptinka du prijungtus ir atrakintus XCTrack įrenginius;
 - pakartotinai paleidus programą AIR³ per mažiau nei dvi sekundes parodo kaip
   prijungtą per USB / MTP, o XCTrack žemėlapių katalogus patikrina fone;
+- vietoje išsaugo paskutinį sėkmingą kelių ir reljefo žemėlapių kiekį, todėl
+  kitą kartą žinomo įrenginio skaičius parodo iškart;
 - tikrinimo, sinchronizavimo ir atkūrimo eigą atskirai A ir B įrenginiams rodo iš
   kairės į dešinę pilnėjančios progreso juostos, o ne neapibrėžta animacija;
 - palygina `Map/RoadMap` ir `Map/gec` katalogus;

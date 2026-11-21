@@ -31,6 +31,8 @@ The application:
 - detects two connected and unlocked XCTrack devices;
 - shows an AIR³ device as USB / MTP connected in under two seconds on a warm
   restart, then validates its XCTrack map folders in the background;
+- caches the last successful road-map and terrain counts locally, so a known
+  device shows its totals immediately on the next launch;
 - uses separate left-to-right progress bars for devices A and B during checks,
   synchronization, and restore instead of an indeterminate animation;
 - compares `Map/RoadMap` and `Map/gec`;

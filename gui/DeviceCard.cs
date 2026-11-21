@@ -188,7 +188,7 @@ internal sealed class DeviceCard : Panel
         _incoming.Text = string.Empty;
     }
 
-    public void SetDetected(string name, string state, string details)
+    public void SetDetected(string name, string state, string details, string secondaryDetails = "")
     {
         _isConnected = true;
         _dot.IsConnected = true;
@@ -196,7 +196,7 @@ internal sealed class DeviceCard : Panel
         _state.Text = state;
         _state.ForeColor = Color.FromArgb(18, 135, 80);
         _details.Text = details;
-        _secondaryDetails.Text = string.Empty;
+        _secondaryDetails.Text = secondaryDetails;
         _incoming.Text = string.Empty;
     }
 

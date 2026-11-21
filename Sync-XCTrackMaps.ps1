@@ -551,22 +551,17 @@ function Get-DeviceInventory {
     return $inventory
 }
 
-function Get-MtpFileCountRecursive {
+function Get-MtpFileCountFast {
     param(
         [Parameter(Mandatory = $true)] $FolderItem,
         [Parameter(Mandatory = $true)] [string] $Extension
     )
 
-    $count = 0
-    foreach ($item in @($FolderItem.GetFolder.Items())) {
-        if ($item.IsFolder) {
-            $count += Get-MtpFileCountRecursive -FolderItem $item -Extension $Extension
-        }
-        elseif ([IO.Path]::GetExtension([string] $item.Name) -ieq $Extension) {
-            $count++
-        }
-    }
-    return $count
+    # Asking Name/IsFolder for thousands of MTP items causes thousands of USB
+    # round trips. XCTrack keeps RoadMap and gec files directly in their
+    # format-specific folders, so ask Windows Shell for Count in one operation.
+    $items = $FolderItem.GetFolder.Items()
+    return [int] $items.Count
 }
 
 function Get-DeviceMapCounts {
@@ -579,13 +574,13 @@ function Get-DeviceMapCounts {
             0
         }
         else {
-            Get-MtpFileCountRecursive -FolderItem $roadMapFolder -Extension '.map'
+            Get-MtpFileCountFast -FolderItem $roadMapFolder -Extension '.map'
         }
         GecCount = if ($null -eq $gecFolder) {
             0
         }
         else {
-            Get-MtpFileCountRecursive -FolderItem $gecFolder -Extension '.gec'
+            Get-MtpFileCountFast -FolderItem $gecFolder -Extension '.gec'
         }
     }
 }

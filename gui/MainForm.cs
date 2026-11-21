@@ -73,6 +73,7 @@ internal sealed class MainForm : Form
     {
         _demoMode = demoMode;
         _language = LoadLanguage(languageOverride);
+        LoadStatsCache();
         if (string.IsNullOrWhiteSpace(_demoMode))
         {
             // Run the first native USB lookup while the interface is being built.
@@ -109,7 +110,9 @@ internal sealed class MainForm : Form
                 ApplyDemoState(_demoMode);
                 return;
             }
-            await RefreshAndCompareAsync(showErrors: true, forceCompare: true);
+            // Keep cached counts on startup so a known device can show its map
+            // totals immediately. The Refresh button always requests fresh data.
+            await RefreshAndCompareAsync(showErrors: true);
         };
         FormClosing += (_, _) => _closing.Cancel();
     }
@@ -460,6 +463,7 @@ internal sealed class MainForm : Form
                     // The comparison already read both inventories; reuse its counts.
                     _deviceStats[devices[0].Identity] = _comparison!.DeviceA;
                     _deviceStats[devices[1].Identity] = _comparison.DeviceB;
+                    SaveStatsCache();
                 }
                 else
                 {
@@ -520,10 +524,9 @@ internal sealed class MainForm : Form
     {
         var ready = devices.Where(device => device.Ready).Select(device => device.Identity)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach (var identity in _deviceStats.Keys.Where(identity => !ready.Contains(identity)).ToList())
-        {
-            _deviceStats.Remove(identity);
-        }
+        // Keep successful counts in memory and on disk. If the same device is
+        // reconnected, its last known totals can be painted without another
+        // multi-thousand-item MTP scan.
         _deviceStatsFailed.RemoveWhere(identity => !ready.Contains(identity));
     }
 
@@ -584,6 +587,7 @@ internal sealed class MainForm : Form
                     ?? throw new InvalidOperationException(T(
                         "Gautas netinkamas statistikos atsakymas.",
                         "The statistics response was invalid."));
+                SaveStatsCache();
             }
             catch (Exception ex) when (!_closing.IsCancellationRequested)
             {
@@ -1020,10 +1024,7 @@ internal sealed class MainForm : Form
             }
             else
             {
-                _deviceA.SetDetected(
-                    devices[0].DisplayName,
-                    T("USB / MTP prijungtas", "USB / MTP connected"),
-                    T("Tikrinami XCTrack žemėlapių katalogai...", "Checking XCTrack map folders..."));
+                ShowDetectedDevice(_deviceA, devices[0]);
             }
         }
         else
@@ -1043,10 +1044,7 @@ internal sealed class MainForm : Form
             }
             else
             {
-                _deviceB.SetDetected(
-                    devices[1].DisplayName,
-                    T("USB / MTP prijungtas", "USB / MTP connected"),
-                    T("Tikrinami XCTrack žemėlapių katalogai...", "Checking XCTrack map folders..."));
+                ShowDetectedDevice(_deviceB, devices[1]);
             }
         }
         else
@@ -1092,6 +1090,25 @@ internal sealed class MainForm : Form
             _restoreAButton.Enabled = devices.Count > 0 && devices[0].Ready;
             _restoreBButton.Enabled = devices.Count > 1 && devices[1].Ready;
         }
+    }
+
+    private void ShowDetectedDevice(DeviceCard card, DeviceStatus device)
+    {
+        if (_deviceStats.TryGetValue(device.Identity, out var stats))
+        {
+            var (roadMaps, terrain) = FormatStats(stats);
+            card.SetDetected(
+                device.DisplayName,
+                T("USB / MTP prijungtas", "USB / MTP connected"),
+                roadMaps,
+                terrain);
+            return;
+        }
+
+        card.SetDetected(
+            device.DisplayName,
+            T("USB / MTP prijungtas", "USB / MTP connected"),
+            T("Tikrinami XCTrack žemėlapių katalogai...", "Checking XCTrack map folders..."));
     }
 
     private void UpdateComparison(ComparisonResult comparison)
@@ -1516,6 +1533,57 @@ internal sealed class MainForm : Form
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "XCTrackMapSync",
         "language.txt");
+
+    private void LoadStatsCache()
+    {
+        try
+        {
+            var path = GetStatsCacheFilePath();
+            if (!File.Exists(path))
+            {
+                return;
+            }
+
+            var cached = JsonSerializer.Deserialize<Dictionary<string, DeviceComparison>>(
+                File.ReadAllText(path),
+                _jsonOptions);
+            if (cached is null)
+            {
+                return;
+            }
+
+            foreach (var (identity, stats) in cached)
+            {
+                if (!string.IsNullOrWhiteSpace(identity))
+                {
+                    _deviceStats[identity] = stats;
+                }
+            }
+        }
+        catch
+        {
+            // A damaged cache must never stop USB detection or a fresh scan.
+        }
+    }
+
+    private void SaveStatsCache()
+    {
+        try
+        {
+            var path = GetStatsCacheFilePath();
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, JsonSerializer.Serialize(_deviceStats, _jsonOptions));
+        }
+        catch
+        {
+            // Counts still remain valid for the current application session.
+        }
+    }
+
+    private static string GetStatsCacheFilePath() => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "XCTrackMapSync",
+        "device-stats.json");
 
     protected override void WndProc(ref Message message)
     {
